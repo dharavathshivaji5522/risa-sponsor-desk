@@ -358,7 +358,7 @@ for i,(deadline,task) in enumerate([
     text(task,144,y+1,14,"regular","muted")
 
 panel(591,305,957,390,"When to scale, change or stop","Apply each threshold after the minimum pilot sample.")
-xvals=[608,813,951,1090,1118,1203]
+xvals=[608,813,951,1090,1127,1203]
 for label,x in zip(["Campaign / risk","Signal / n","Scale / change / stop","Min.","Decision","Next move"],xvals,strict=True):
     text(label,x,391,12 if x==951 else 13,"bold","muted")
 decisions={
