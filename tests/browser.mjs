@@ -56,6 +56,15 @@ for(const engine of engines) {
       await ask(page,"Calculate the overall proposal-to-deal conversion rate.",/40%.*18 signed deals.*45 proposals/);
       await ask(page,"Add the budgets for inbound and revival.",/₹39,000.*₹25,000 \+ ₹14,000/);
     });
+    await t.test("stress queries distinguish balances, funnel counts, and historical evidence",async()=>{
+      await ask(page,"How much budget remains?",/remaining acquisition budget.*₹47,000/i);
+      await ask(page,"How many proposals are not signed?",/27 \(45 − 18\)[\s\S]*status records are needed/);
+      await ask(page,"How many proposals are still open?",/no individual proposal statuses/);
+      await ask(page,"What is creator's share of collected cash?",/47\.37%.*₹4,50,000 ÷ ₹9,50,000/);
+      await ask(page,"Which campaigns should we scale?",/Creator referrals[\s\S]*Warm introductions/);
+      await ask(page,"What is the historical median cash deal?",/₹95,000 across 20 deals/);
+      await ask(page,"How much did we collect historically from Beardo?",/₹2,00,000.*Beardo.*Actual payment receipts and cash collection totals are unavailable/);
+    });
     await t.test("chat diagnosis, contextual Why, and sensitivity use the same campaign",async()=>{
       await ask(page,"Which campaign has the biggest forecast gap?",/Inbound fast lane.*₹1,10,320/);
       await ask(page,"Why?",/74%.*85%/);
@@ -111,6 +120,7 @@ for(const engine of engines) {
       await ask(page,"How much cash has the current workspace collected?",/₹10,50,000/);
       await ask(page,"How much budget is left?",/₹43,000/);
       await ask(page,"What is the new portfolio cash realization?",/53.44%/);
+      await ask(page,"What is creator’s share of collected cash?",/52\.38%.*₹5,50,000 ÷ ₹10,50,000/);
     });
     await t.test("refresh preserves edited campaign and task, new browser stays independent",async()=>{
       await page.reload();

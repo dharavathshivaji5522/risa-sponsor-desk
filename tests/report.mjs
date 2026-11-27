@@ -1,24 +1,26 @@
 import {isDeepStrictEqual} from "node:util";
 import {engine} from "./fixture.mjs";
-import {cases,conversation} from "./copilot-cases.mjs";
+import {cases,conversation,stressWorkspace,stressChanged} from "./copilot-cases.mjs";
 
 const {initial,answerQuestion}=engine;
 const printable=text=>String(text).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">", "&gt;").replaceAll("|","\\|").replaceAll("\n","<br>");
 const totals={pass:0,fail:0};
 const sections=new Map();
-function add(category,question,expected,result) {
+function add(category,question,expected,result,absent=[]) {
   if(!sections.has(category))sections.set(category,[]);
   const {answer,refs,draft}=result;
   const actual=[answer,...refs.map(ref=>"Source: "+ref.label),...(draft?["Draft: "+draft.owner+", "+draft.due+", "+draft.status]:[])].join("\n");
-  const passed=expected.every(item=>answer.includes(item)) && result.contextOK!==false && result.savedDataOK!==false;
+  const passed=expected.every(item=>answer.includes(item)) && absent.every(item=>!answer.includes(item)) &&
+    result.contextOK!==false && result.savedDataOK!==false;
   totals[passed?"pass":"fail"]++;
-  sections.get(category).push([question,expected.join("\n"),actual,passed?"PASS":"FAIL"].map(printable));
+  const checks=[...expected,...absent.map(item=>"Exclude: "+item)].join("\n");
+  sections.get(category).push([question,checks,actual,passed?"PASS":"FAIL"].map(printable));
 }
 
-for(const {category,question,expected} of cases) {
+for(const {category,question,expected,absent} of cases) {
   const state=initial(), before=JSON.stringify(state);
   const result=answerQuestion({q:question},state);
-  add(category,question,expected,{...result,savedDataOK:JSON.stringify(state)===before});
+  add(category,question,expected,{...result,savedDataOK:JSON.stringify(state)===before},absent);
 }
 const state=initial();
 const before=JSON.stringify(state);
@@ -41,6 +43,12 @@ for(const [question,expected] of [
   ["Remaining budget?",["₹38,000"]],
   ["How much is the combined inbound and revival spend?",["₹32,000"]],
 ]) add("Changed application records",question,expected,answerQuestion({q:question},changed));
+for(const [question,expected,absent] of stressChanged) {
+  const edited=stressWorkspace(engine);
+  const before=JSON.stringify(edited);
+  const result=answerQuestion({q:question},edited);
+  add("Stress tests with changed records",question,expected,{...result,savedDataOK:JSON.stringify(edited)===before},absent);
+}
 
 console.log("# Sponsor Desk Copilot test report");
 console.log("\n"+totals.pass+" passed · "+totals.fail+" failed across "+(totals.pass+totals.fail)+" checked responses.");

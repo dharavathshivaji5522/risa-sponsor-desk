@@ -151,8 +151,36 @@ function historicalAnswer(q, date, cid, brandId, dates, opportunity, topic) {
   const label = `Sponsorship workbook · ${date} EOD IST`;
   const refs = [{label,url:DATA.links.sponsorship}];
   if (!DATA.sponsor.Brands.length) return {answer:"No brand records are available in the historical workbook.",refs};
-  if (has(q,/\b(roi|cac|budget|spend|cost|receipt|deposited|cash (?:(?:was|has been|had been) )?(collected|received|paid)|cash realiz\w*|unpaid|paid in|paid deals?|acquisition spend|payment\w*|bank|actual receipts)\b/)) {
-    return {answer:`The historical workbook records ${lakhs(s.signedValue)} in confirmed cash agreements for ${selected} by ${date}. It provides no bank receipts, cash collection totals, payment dates, or campaign spend. Collection and spend shown in the workspace are simulated.`,refs};
+  if (has(q,/\b(?:roi|cac|budget|spend|cost|receipts?|deposit(?:ed|s)?|collect(?:ed|ing|ions?)?|received|paid|pay|payment\w*|bank|unpaid|cash realiz\w*|bring in|remit\w*)\b/)) {
+    const deal=opportunity?s.deals.find(row=>row.id===opportunity):null;
+    const committed=opportunity?(deal?.stage==="partner_confirmed" && deal.support==="cash" ? deal.value : 0):s.signedValue;
+    const scope=opportunity?(deal?`${deal.brand} (${opportunity})`:opportunity):selected;
+    return {answer:`The historical workbook records ${exactCash(committed)} in confirmed cash commitments for ${scope} by ${date}. Actual payment receipts and cash collection totals are unavailable. The workbook provides no bank receipts, payment dates, or campaign spend. Collection and spend shown in the workspace are simulated.`,refs};
+  }
+  if (dealStatistic(q) && /\b(?:cash|deals?|commitments?|ticket size)\b/.test(q)) {
+    const median=dealStatistic(q)==="median";
+    const inKind=/\bin.kind\b/.test(q);
+    const type=inKind?"in-kind":"cash";
+    const summarize=(snapshot,cutoff)=>{
+      const values=snapshot.deals.filter(deal=>deal.stage==="partner_confirmed" && deal.support===(inKind?"in_kind":"cash") &&
+        (!opportunity||deal.id===opportunity) && Number.isFinite(deal.value)).map(deal=>deal.value).sort((a,b)=>a-b);
+      if (!values.length) return `No confirmed ${type} deals had a recorded value for ${opportunity||selected} by ${cutoff}.`;
+      const middle=Math.floor(values.length/2);
+      const amount=median ? (values[middle]+values[Math.floor((values.length-1)/2)])/2 : sum(values,value=>value)/values.length;
+      const calculation=median ?
+        values.length%2 ? `middle value of ${values.length} sorted deals` : `(${inr(values[middle-1])} + ${inr(values[middle])}) ÷ 2` :
+        `${inr(sum(values,value=>value))} ÷ ${values.length}`;
+      return `${median?"Median":"Average"} confirmed ${type} deal for ${opportunity||selected} by ${cutoff} is ${inr(amount)} across ${values.length} ${values.length===1?"deal":"deals"} (${calculation}).`;
+    };
+    const answers=(dates.length>1?[...dates].sort():[date]).map(cutoff=>summarize(cutoff===date?s:getHistorySnapshot(cutoff,{campaign:cid,brand:brandId}),cutoff));
+    return {answer:answers.join("\n")+(inKind?"":"\nThese values are commitments recorded in the workbook. Payment records are unavailable."),refs};
+  }
+  if (complementaryMetric(q)==="unsignedProposals" && !openProposalStatus(q)) {
+    return {answer:`By ${date}, ${s.proposals-s.signed} proposals had no confirmed deal for ${selected} (${s.proposals} proposals − ${s.signed} confirmed deals). The count can include opportunities that stopped progressing.`,refs};
+  }
+  if (openProposalStatus(q) && /\b(?:open|pending|outstanding|in progress|under negotiation|awaiting)\b/.test(q)) {
+    const open=s.deals.filter(deal=>["proposal_sent","negotiating"].includes(deal.stage) && (!opportunity||deal.id===opportunity)).length;
+    return {answer:`By ${date}, ${open} opportunities for ${opportunity||selected} had a latest status of proposal sent or negotiating in the historical workbook.`,refs};
   }
   if (dates.length >= 2) {
     const [start,end] = dates.slice(0,2).sort();
@@ -375,6 +403,17 @@ function liveAnswer(query,state) {
       (!/completed|done/.test(q)||task.status==="Done"));
     return {answer:list.length ? list.slice(-10).map(task=>`${task.title} — ${task.owner}, due ${task.due}, ${task.status}. ${task.note}`).join("\n") : "There are no saved tasks matching that scope.",refs,context:ctx(selected,"tasks")};
   }
+  if (openProposalStatus(q) || /\b(?:open|pending|lost|withdrawn) (?:opportunities|deals)\b/.test(q)) {
+    return {answer:"The workspace stores aggregate proposal and signed-deal counts. It has no individual proposal statuses, so I can’t tell which proposals are still open, lost, or withdrawn.",refs};
+  }
+  if (dealStatistic(q)==="median" && /\b(?:deals?|cash|payments?|receipts?|commitments?|ticket size)\b/.test(q)) {
+    return {answer:"The simulated workspace stores totals and counts. A median needs individual deal values. The historical workbook can support a median for confirmed commitments.",refs};
+  }
+  if (paidContractValue(q) && !dealStatistic(q)) {
+    return {answer:"The full contractual value of paid deals is unavailable without individual deal-level payment data. I can calculate average receipts per paid deal from workspace totals.",refs};
+  }
+  const filtered=filteredCampaigns(q,rows);
+  if (filtered) return {...filtered,refs,context:ctx(filtered.row,"metric")};
   if (/\bwho (?:owns|is responsible for|runs|leads)\b|\bcampaign owner\b/.test(q)) {
     return {answer:selected?rows.map(row=>`${row.owner} owns ${row.name}.`).join("\n"):"Which campaign do you mean? Try asking, “Who owns Inbound fast lane?”",refs,context:ctx(selected,"owner")};
   }
@@ -420,11 +459,20 @@ function liveAnswer(query,state) {
     const result=calculateMetric(q,metric,rows,board);
     if (result) return {answer:result.answer,refs,context:ctx(result.row,"metric",{metric})};
   }
-  const actionable=/recommend|prioriti[sz]e|\bscale\b|\bstop\b|weakest|\bbest\b|underperform|what should|behind|shortfall|risk|bottleneck|how (?:can|could|do) we improve/.test(q);
+  const actionable=/recommend|prioriti[sz]e|\b(?:scale|scaling|stop|pause|expand|expansion)\b|double down|weakest|\bbest\b|underperform|what should|behind|shortfall|risk|bottleneck|how (?:can|could|do) we improve/.test(q);
   if (actionable || (followup && context.topic==="decision")) {
     const needsAction=/weakest|underperform|gap|behind|shortfall|risk|bottleneck/.test(q);
-    const action=q.match(/\b(stop|pause|scale|change|revise)\b/)?.[1];
-    const desired={stop:"Stop",pause:"Stop",scale:"Scale",change:"Change",revise:"Change"}[action];
+    const action=q.match(/\b(stop|pause|scale|scaling|expand|expansion|double down|change|revise|collect data)\b/)?.[1];
+    const desired={stop:"Stop",pause:"Stop",scale:"Scale",scaling:"Scale",expand:"Scale",expansion:"Scale","double down":"Scale",change:"Change",revise:"Change","collect data":"Collect data"}[action];
+    const plural=/\b(?:campaigns|channels|strategies|ones|all|every|list)\b/.test(q) || requested.length>1;
+    if (desired && plural) {
+      const exclude=/\b(?:not|aren't|aren’t|don't|doesn't|cannot|can't|below|fail\w* to)\b/.test(q);
+      const matching=rows.filter(row=>exclude?row.decision!==desired:row.decision===desired)
+        .sort((a,b)=>b.plan.priority-a.plan.priority);
+      if (!matching.length) return {answer:`No campaigns in scope ${exclude?"are outside":"meet"} the ${desired} decision criteria.`,refs,context:ctx(undefined,"decision")};
+      return {answer:matching.map(row=>diagnose(row,false).answer).join("\n\n"),refs,
+        context:ctx(matching.length===1?matching[0]:undefined,"decision")};
+    }
     if (selected && /^how (?:can|could|do) we improve/.test(q)) {
       return {answer:`${selected.next} Track ${selected.metric.toLowerCase()} (currently ${pct(selected.actual.signal)}). Reassess after at least ${selected.min} observations and consider scaling at ${selected.scale}% or above.`,refs,context:ctx(selected,"decision")};
     }

@@ -1,15 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {engine} from "./fixture.mjs";
-import {cases,conversation} from "./copilot-cases.mjs";
+import {engine,fixture} from "./fixture.mjs";
+import {cases,conversation,stressWorkspace,stressChanged} from "./copilot-cases.mjs";
 
 const {initial,answerQuestion,applyChange}=engine;
-for(const {category,question,expected} of cases) {
+for(const {category,question,expected,absent} of cases) {
   test("["+category+"] "+question,()=>{
     const state=initial();
     const saved=JSON.stringify(state);
     const {answer}=answerQuestion({q:question},state);
     for(const phrase of expected) assert.ok(answer.includes(phrase),"Missing "+phrase+" in:\n"+answer);
+    for(const phrase of absent) assert.ok(!answer.includes(phrase),"Unexpected "+phrase+" in:\n"+answer);
     assert.equal(JSON.stringify(state),saved,"Chat must leave saved data alone");
   });
 }
@@ -72,4 +73,29 @@ test("live questions use edited receipts, spending, and conversion counts",()=>{
     ["How much is the combined inbound and revival spend?",/₹32,000/]
   ];
   for(const [q,expected] of cases) assert.match(answerQuestion({q},state).answer,expected);
+});
+
+for (const [question,expected,absent=[]] of stressChanged) {
+  test("[Changed stress data] "+question,()=>{
+    const state=stressWorkspace(engine);
+    const {answer}=answerQuestion({q:question},state);
+    for (const phrase of expected) assert.ok(answer.includes(phrase),"Missing "+phrase+" in:\n"+answer);
+    for (const phrase of absent) assert.ok(!answer.includes(phrase),"Unexpected "+phrase+" in:\n"+answer);
+  });
+}
+
+test("deal averages and portfolio shares flag zero denominators",()=>{
+  const state=initial();
+  for(const row of Object.values(state.campaigns)) Object.assign(row,{signed:0,signedValue:0,paid:0,cash:0});
+  for (const q of ["What is the average signed deal value?","What is the average value of paid deals?",
+    "What proportion of signed deals have paid?","What is creator's share of collected cash?"]) {
+    const {answer}=answerQuestion({q},state);
+    assert.match(answer,/undefined/);
+    assert.doesNotMatch(answer,/NaN|Infinity/);
+  }
+});
+
+test("README links to the question-by-question report",()=>{
+  assert.match(fixture("README.md"),/\[question-by-question report\]\(TEST-REPORT\.md\)/);
+  assert.match(fixture("TEST-REPORT.md"),/^# Sponsor Desk Copilot test report/);
 });

@@ -1,5 +1,5 @@
 const cases=[];
-const group=(category,entries)=>cases.push(...entries.map(([question,expected])=>({category,question,expected})));
+const group=(category,entries)=>cases.push(...entries.map(([question,expected,absent=[]])=>({category,question,expected,absent})));
 
 group("Reported regressions",[
   ["Calculate the overall proposal-to-deal conversion rate.",["40%","18 signed deals","45 proposals"]],
@@ -170,6 +170,88 @@ group("Boundaries",[
   ["Create a task for warm and inbound.",["Which one"]],
 ]);
 
+
+group("Independent stress regressions",[
+  ["How much budget remains?",["₹47,000","₹1,20,000 − ₹73,000"]],
+  ["How much acquisition budget is still available?",["Remaining acquisition budget","₹47,000"]],
+  ["What is the average signed deal value?",["₹1,09,167","₹19,65,000 signed cash value ÷ 18 signed deals"]],
+  ["How many proposals are not signed?",["27 (45 − 18)","Proposal status records are needed"]],
+  ["What proportion of signed deals have paid?",["55.56%","10 paid deals ÷ 18 signed deals × 100"]],
+  ["What is creator's share of collected cash?",["Creator referrals accounts for 47.37%","₹4,50,000 ÷ ₹9,50,000 × 100"]],
+  ["Which campaigns should we scale?",["Creator referrals","Warm introductions","64%","50%"],["Inbound fast lane","Cold outbound holdout"]],
+  ["Which campaign is overspending its budget?",["None of the campaigns in scope are overspending"]],
+  ["What is the historical median cash deal?",["Median confirmed cash deal","₹95,000","20 deals","Payment records are unavailable"]],
+  ["Which campaigns have zero receipts?",["Revival micro-packages","Cold outbound holdout","2 campaigns"],["Inbound fast lane","Creator referrals"]],
+  ["What is the average value of paid deals?",["Average receipts per paid deal","₹95,000","₹9,50,000 receipts ÷ 10 paid deals","full contractual value of those paid deals is unavailable"]],
+  ["How much did we collect historically from Beardo?",["Beardo","₹2,00,000","confirmed cash commitments","Actual payment receipts and cash collection totals are unavailable"]],
+  ["How many unsigned proposals are still open?",["no individual proposal statuses","still open"],["27 (45 − 18)"]],
+]);
+
+group("Independent stress paraphrases",[
+  ["Show headroom in creator’s budget.",["Creator referrals","₹11,000","₹32,000 − ₹21,000"]],
+  ["What percentage of our acquisition allocation is unused?",["39.17%","₹47,000 remaining budget"]],
+  ["How much unspent budget is there for warm and inbound combined?",["₹21,000","₹58,000 − ₹37,000"]],
+  ["Give me the signed cash amount per signed deal.",["₹1,09,167","18 signed deals"]],
+  ["What is the mean signed contract size for creator and warm?",["₹1,13,571","₹15,90,000 signed cash value ÷ 14 signed deals"]],
+  ["Which campaign has the highest average signed deal value?",["Warm introductions","₹1,25,000","Cold outbound holdout"]],
+  ["List proposals that haven't converted to signed deals as a count.",["27 (45 − 18)","Proposal status records are needed"]],
+  ["How many quotes did not turn into contracts?",["27 (45 − 18)"]],
+  ["What percentage of proposals remain unsigned?",["60%","27 proposals without a signed deal ÷ 45 proposals"]],
+  ["How many signed deals are unpaid?",["8 (18 − 10)"]],
+  ["How many prospects never reached a conversation?",["99 (174 − 75)"]],
+  ["How many conversations are without a proposal?",["30 (75 − 45)"]],
+  ["What fraction of signed deals remained without receipts?",["44.44%","8 signed deals without receipts ÷ 18 signed deals"]],
+  ["How many proposals are pending a signature in the workspace?",["no individual proposal statuses"]],
+  ["What share of signed deals brought in payments?",["55.56%","10 paid deals ÷ 18 signed deals"]],
+  ["What portion of cash receipts did warm and creator bring in?",["78.95%","₹7,50,000 ÷ ₹9,50,000"]],
+  ["Which campaign contributed the largest share of total receipts?",["Creator referrals","47.37%"]],
+  ["Show each campaign’s share of collected cash.",["Creator referrals accounts for 47.37%","Warm introductions accounts for 31.58%","Cold outbound holdout accounts for 0%"]],
+  ["What percentage of paid deals comes from creator?",["50%","5 ÷ 10"]],
+  ["Which channels are ready to expand?",["Creator referrals","Warm introductions"],["Inbound fast lane"]],
+  ["Which campaigns are not ready to scale?",["Inbound fast lane","Cold outbound holdout"],["Creator referrals","Warm introductions"]],
+  ["Which campaigns have spent more than their budget?",["None of the campaigns in scope are overspending"]],
+  ["Has inbound overspent its budget?",["None of the campaigns in scope are overspending"]],
+  ["Which campaigns did not collect any receipts?",["Revival micro-packages","Cold outbound holdout"],["Creator referrals"]],
+  ["How many channels have no paid deals?",["2 campaigns have zero paid deals","Revival micro-packages","Cold outbound holdout"]],
+  ["Which channel has the highest receipts per paid deal?",["Warm introductions","₹1,00,000","deal-level payment data"]],
+  ["What is the full contractual value of paid deals?",["full contractual value of paid deals is unavailable","deal-level payment data"]],
+  ["Median signed deal value in the live workspace?",["median needs individual deal values"]],
+  ["Median cash deal in the historical workbook on March 15?",["₹90,000","14 deals"]],
+  ["Historical median cash deal for warm introductions?",["₹92,500","6 deals","₹90,000 + ₹95,000"]],
+  ["Historical median confirmed deal for A001?",["₹2,00,000","1 deal"]],
+  ["Historical mean confirmed cash deal?",["₹1,00,000","₹20,00,000 ÷ 20"]],
+  ["How many open proposals in the historical workbook on April 11?",["14 opportunities","proposal sent or negotiating"]],
+  ["How many proposals were not signed in the historical workbook on April 11?",["22 proposals","46 proposals − 24 confirmed deals"]],
+  ["What did Beardo actually remit in cash historically?",["confirmed cash commitments","₹2,00,000","Actual payment receipts and cash collection totals are unavailable"]],
+]);
+
+const stressChanges = [
+  {id:"creator",values:{spend:35000,signed:9,signedValue:950000,paid:6,cash:540000}},
+  {id:"warm",values:{signal:40}},
+  {id:"inbound",values:{signal:90}},
+  {id:"revival",values:{spend:16000,paid:1,cash:50000}},
+  {id:"cold",values:{spend:16000}}
+];
+function stressWorkspace({initial,applyChange}) {
+  const state=initial();
+  for (const {id,values} of stressChanges) applyChange(state,{kind:"update-campaign",id,values:{...state.campaigns[id],...values}});
+  return state;
+}
+const stressChanged=[
+  ["What budget remains available?",["₹16,000","₹1,20,000 − ₹1,04,000"]],
+  ["What is the average signed deal value?",["₹1,09,211","₹20,75,000 signed cash value ÷ 19 signed deals"]],
+  ["How many proposals are not signed?",["26 (45 − 19)","Proposal status records are needed"]],
+  ["What proportion of signed deals have paid?",["63.16%","12 paid deals ÷ 19 signed deals"]],
+  ["What is creator's share of collected cash?",["49.54%","₹5,40,000 ÷ ₹10,90,000"]],
+  ["Which campaigns should we scale?",["Creator referrals","Inbound fast lane"],["Warm introductions"]],
+  ["Which campaigns are overspending their budgets?",["Creator referrals is ₹3,000 over budget","Revival micro-packages is ₹2,000 over budget"],["Cold outbound holdout"]],
+  ["Which channel is furthest over budget?",["Creator referrals is ₹3,000 over budget"],["Revival micro-packages"]],
+  ["Which campaigns have zero receipts?",["1 campaign has zero simulated receipts","Cold outbound holdout"],["Revival micro-packages"]],
+  ["What is the average value of paid deals?",["₹90,833","₹10,90,000 receipts ÷ 12 paid deals","full contractual value"]],
+  ["What is the historical median cash deal?",["₹95,000","20 deals"]],
+  ["How much did we collect historically from Beardo?",["₹2,00,000","Actual payment receipts and cash collection totals are unavailable"]],
+];
+
 const conversation=[
   ["Which campaign has the biggest forecast gap?","₹1,10,320",{campaign:"inbound",topic:"decision"}],
   ["Why?","74%",{campaign:"inbound",topic:"decision"}],
@@ -188,4 +270,4 @@ const conversation=[
   ["What about base?","34.6%",{scope:"live",mode:"base",metric:"progress"}],
 ];
 
-export {cases,conversation};
+export {cases,conversation,stressWorkspace,stressChanged};
