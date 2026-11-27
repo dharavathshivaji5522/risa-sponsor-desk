@@ -110,16 +110,16 @@ def pill(s, x, top, w, fill, fg="ink", size=14, url=None, h=34):
 
 def heading(num, section, title, lead, actions=False):
     box(0, 0, W, H, "paper")
-    box(0, 0, W, 204, "ink")
-    box(0, 0, W, 6, "blue")
-    # A compact report section marker and an event descriptor.
-    text(f"RISA LABS GROWTH APM   /   {section.upper()}", 52, 29, 16, "bold", "blueLight")
-    text("CAMPUSFEST BENGALURU     CHALLENGE B", 1548, 29, 15, "bold", "white", "right")
-    text(title, 51, 63, 50, "bold", "white")
-    text(lead, 54, 135, 19, "regular", "#CAD5E3")
+    box(0, 0, W, 204, "#FCFBF8")
+    box(52, 32, 16, 4, "blue", radius=2)
+    text(section, 78, 24, 16, "bold", "blueDark")
+    text("RISA Labs Growth APM  /  Challenge B", 1548, 24, 15, "bold", "muted", "right")
+    text(title, 50, 52, 51, "bold", "forest")
+    text(lead, 53, 124, 19, "regular", "muted")
     if actions:
-        pill("Open live app", 1234, 132, 145, "blue", "white", url=LIVE)
-        pill("GitHub README", 1390, 132, 158, "white", "ink", url=README)
+        pill("Open live app", 1234, 119, 145, "blue", "white", url=LIVE)
+        pill("GitHub README", 1390, 119, 158, "bluePale", "blueDark", url=README)
+    stroke(52, 171, 1548, 171, "line")
     stroke(52, 848, 1548, 848, "line")
     text("Dharavath Shivaji", 52, 865, 15, "bold", "ink")
     text("IIT Kharagpur", 208, 865, 15, "regular", "muted")
@@ -173,13 +173,13 @@ live = json.loads(check_output(["node", "--input-type=module", "-e", overview_sc
 assert (live["totals"]["cash"], live["projection"], live["target"]-live["projection"]) == (950000, 2634980, 110770)
 
 # Slide 1. Stage volumes, payment conversion, and sponsor selection.
-heading(1, "Cash model", "How much sponsorship cash can we collect?",
-        "Bengaluru’s technology cluster offers access to anchor sponsors and local decision-makers.", True)
+heading(1, "Cash plan", "How much cash can CampusFest collect?",
+        "Start with Bengaluru’s tech employers, consumer brands and local businesses.", True)
 
 kpis = [
-    ("MODELED BENCHMARK", lakh(BENCH), "₹20.00L in past cash commitments × 85% assumed payment", "sand", "goldDark"),
-    ("BASE CASE", lakh(BASE), "29 signed deals  /  ₹30.80L contracted", "mint", "forest"),
-    ("STRETCH CASE", lakh(STRETCH), "39 signed deals  /  ₹43.70L contracted", "bluePale", "blueDark"),
+    ("BENCHMARK", lakh(BENCH), "₹20.00L previously pledged × 85% assumed to pay on time", "sand", "goldDark"),
+    ("BASE CASE", lakh(BASE), "29 modeled deals worth ₹30.80L at signing", "mint", "forest"),
+    ("STRETCH CASE", lakh(STRETCH), "39 modeled deals worth ₹43.70L at signing", "bluePale", "blueDark"),
 ]
 for i, (name, value, caption, fill, fg) in enumerate(kpis):
     x = 52+i*505
@@ -188,7 +188,7 @@ for i, (name, value, caption, fill, fg) in enumerate(kpis):
     text(value, x+18, 222, 43, "bold", fg)
     paragraph(caption, x+20, 273, 448, 14, 17, fg, 298)
 
-panel(52, 326, 912, 410, "From prospect to signed deal", "Unique prospect cohorts. Each rate uses the previous stage.")
+panel(52, 326, 912, 410, "From prospect to signed deal", "Each prospect counts once. Rates compare with the previous stage.")
 dot(648, 367, 5, "teal"); text("Base", 662, 355, 15, "bold", "muted")
 dot(749, 367, 5, "blue"); text("Stretch", 763, 355, 15, "bold", "muted")
 stages = ["Prospects", "Conversations", "Proposals", "Signed deals"]
@@ -210,12 +210,12 @@ for idx, (name, x) in enumerate(zip(stages, centres, strict=True)):
         text("Named brands",x,598,15,"regular","muted","center")
 stroke(74,633,942,633,"line")
 box(76,653,864,58,"grayPale",radius=9)
-text("On-time cash share",92,664,17,"bold","ink")
+text("Share paid by 11 April",92,664,17,"bold","ink")
 text(f"{BASE/BOOKED[0]:.1%} base",347,665,16,"bold","teal")
 text(f"{STRETCH/BOOKED[1]:.1%} stretch",499,665,16,"bold","blueDark")
-text("Contracted value × channel payment rate",924,666,14,"regular","muted","right")
+text("Weighted by deal value",924,666,14,"regular","muted","right")
 
-panel(984,326,564,410,"Where to sell first","Historical cash commitments by recorded source")
+panel(984,326,564,410,"Where to find sponsors","Past cash commitments by source")
 series = [("Creator referrals",725000,"teal"),("Warm introductions",640000,"blue"),("Partner interest form",635000,"violet")]
 for i,(label,val,fill) in enumerate(series):
     y=417+37*i
@@ -237,21 +237,21 @@ for i,(label,description) in enumerate(sponsors):
     text(description,1025,y+18,14,"regular","muted")
 
 box(52,756,1496,69,"forest",radius=13)
-text("6-week sprint",72,769,19,"bold","white")
+text("Six weeks to sell",72,769,19,"bold","white")
 text("₹1.20L acquisition budget",355,770,18,"bold","mintBright")
 text("4 owners × 6 conversations/week",713,770,18,"bold","white")
 text("144-conversation capacity",1526,770,16,"regular","mintBright","right")
 text("Cutoff 11 Apr 2025",72,797,14,"regular","mintBright")
-text("Historical workbook records commitments. The payment rates are planning assumptions.",355,797,15,"regular","white")
+text("The workbook records pledges. We estimate how much arrives by the cutoff.",355,797,15,"regular","white")
 link("Source workbook",WORKBOOK,355,866)
 link("Bengaluru source",CITY,520,866)
 c.showPage()
 
 # Slide 2. An explicit waterfall from modeled comparator to base target.
-heading(2,"Channel bets","The top three bets cover 94% of base cash",
-        "Ring-fence ₹90k for creator referrals, warm introductions and inbound. Limit the remaining trials to ₹30k.")
+heading(2,"Channel priorities","Put the first ₹90k into proven channels",
+        f"Creator referrals, warm introductions and inbound account for {TOP_THREE}% of projected base-case cash.")
 
-panel(52,224,857,400,"How the base case adds ₹10.46L","Cumulative expected receipts versus the ₹17.00L comparator")
+panel(52,224,857,400,"How the base case adds ₹10.46L","Expected cash above the ₹17.00L benchmark")
 plot_x, plot_y, plot_bottom, chart_h = 115, 327, 540, 195
 for level in (0, 10, 20, 30):
     y=plot_bottom-level/30*chart_h
@@ -274,7 +274,7 @@ for i,(name,amount,fill) in enumerate(zip(names,weights,colors,strict=True)):
     if i < 6:
         stroke(xc+31,y_hi,xc+80,y_hi,"quiet",0.8,[3,3])
         running=high
-text("Increment = modeled channel cash less its share of the comparator.",74,594,14,"regular","muted")
+text("Each step shows how much a channel adds above its share of the benchmark.",74,594,14,"regular","muted")
 
 panel(52,644,857,178,"Budget split","Share of ₹1.20L")
 budget_colors=["teal","blue","violet","amber","rose"]
@@ -291,7 +291,7 @@ for i,(label,fill) in enumerate(zip(["Creator","Warm","Inbound","Revival","Cold"
     text(label,x+16,756,14,"bold","muted")
 text("75% to the three established sources",74,789,15,"bold","forest")
 
-panel(931,224,617,598,"Five ranked bets","40% cash lift · 25% evidence · 20% speed · 15% ease")
+panel(931,224,617,598,"What we’ll test first","40% cash lift · 25% evidence · 20% speed · 15% ease")
 descriptions={
     "creator": ("Student demos and creator content", "10 introductions by D−28 / qualification rate"),
     "warm": ("Alumni introductions to anchor brands", "10 introductions by D−28 / decision-maker calls"),
@@ -310,14 +310,14 @@ for i,(row,fill) in enumerate(zip(ROWS,budget_colors,strict=True)):
     text(f"{lakh(data_value(row,'base'))} base",1526,y+28,14,"bold","blueDark","right")
     text(f"{row['owner']}  /  {row['window']}",1526,y+49,13,"regular","muted","right")
     stroke(951,y+79,1526,y+79)
-text("Assign each prospect to one strategy. Stop cold outbound if the pilot misses its floor.",952,782,13,"bold","muted")
+text("Give each prospect one owner. Pause cold outreach if fewer than 6% reply positively.",952,782,13,"bold","muted")
 l=link("Full channel assumptions",README,355,866)
 c.showPage()
 
 # Slide 3. Diverging forecast gaps, operational decisions and saved workflow.
 gap = live["target"]-live["projection"]
-heading(3,"Operating decisions",f"The base case is {lakh(gap)} short at D-16",
-        "Fix inbound response time first. Review payment dates twice a week.")
+heading(3,"Weekly review","Fix inbound response time first",
+        f"With 16 days left, the cash forecast is {lakh(gap)} below target. Inbound accounts for {lakh(live['details'][2]['gap'])} of the shortfall.")
 kpi3=[
     ("COLLECTED",lakh(live["totals"]["cash"]),"10 simulated deals with receipts","mint","forest"),
     ("ON-TIME FORECAST",lakh(live["projection"]),"Base target ₹27.46L","bluePale","blueDark"),
@@ -330,7 +330,7 @@ for i,(label,value,note,fill,fg) in enumerate(kpi3):
     text(value,x+17,219,38,"bold",fg)
     text(note,x+469,247,14,"regular",fg,"right")
 
-panel(52,305,516,335,"Cash variance by campaign","Projected cash minus base target")
+panel(52,305,516,335,"Where cash is ahead or behind","Projected cash minus the base target")
 baseline_x=398
 scale=133/110320
 text("0",baseline_x,375,12,"bold","quiet","center")
@@ -346,7 +346,7 @@ for i,row in enumerate(live["details"]):
 box(73,596,475,23,"redPale",radius=5)
 text("Inbound gap ₹1.10L · first replies within 24h at 74%",83,597,13,"bold","rose")
 
-panel(52,653,516,168,"Cash checkpoints")
+panel(52,653,516,168,"Payment checkpoints")
 for i,(deadline,task) in enumerate([
     ("D−14","Verify invoice approval on signed deals."),
     ("D−7","Escalate high-value unpaid deals to finance."),
@@ -357,7 +357,7 @@ for i,(deadline,task) in enumerate([
     text(deadline,102,y+2,13,"bold","blueDark","center")
     text(task,144,y+1,14,"regular","muted")
 
-panel(591,305,957,390,"When to scale, change or stop","Apply each threshold after the minimum pilot sample.")
+panel(591,305,957,390,"What to do about each campaign","Make the call once the pilot reaches its minimum sample.")
 xvals=[608,813,951,1090,1127,1203]
 for label,x in zip(["Campaign / risk","Signal / n","Scale / change / stop","Min.","Decision","Next move"],xvals,strict=True):
     text(label,x,391,12 if x==951 else 13,"bold","muted")
@@ -392,7 +392,7 @@ for i,row in enumerate(live["details"]):
     pill(state,1118,y+4,72,bg,fg,12,h=23)
     text(action,1203,y+1,14,"bold","ink")
     text(response_paths[row["id"]],1203,y+21,12,"regular","muted")
-text("Scale only eligible cohorts. Change the pitch or owner. Stop after a missed floor.",609,673,13,"regular","muted")
+text("If a campaign needs a change, adjust the pitch or assign a new owner and check the next batch.",609,673,13,"regular","muted")
 
 panel(591,711,957,110,"Review in Sponsor Desk")
 for j,(letter,title) in enumerate([("1","Find the gap"),("2","Ask Copilot why"),("3","Confirm a task")]):
@@ -403,8 +403,8 @@ for j,(letter,title) in enumerate([("1","Find the gap"),("2","Ask Copilot why"),
     if j<2:
         stroke(x+172,783,x+218,783,"blueLight",1.4)
 pill("Open live app",1381,765,147,"blue","white",url=LIVE)
-link("Model and evaluation method",README,355,866)
-text("Observed commitments and simulated receipts remain separate.",1456,866,13,"regular","muted","right")
+link("Model and test notes",README,355,866)
+text("Page 3 shows the app’s simulated workspace.",1456,866,13,"regular","muted","right")
 c.showPage()
 c.save()
 print(args.output)

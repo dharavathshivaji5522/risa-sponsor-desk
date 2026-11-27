@@ -238,10 +238,26 @@ function editTask(id,draft){
   });
 }
 
+const chat=$("#chat");
+const chatGreeting=chat.firstElementChild.textContent;
+function appendMessage(message){
+  chat.append(message);
+  chat.scrollTop=chat.scrollHeight;
+  return message;
+}
+
 function bubble(text,kind,refs=[],draft=null){
   const message=document.createElement("div");
-  message.className="message "+kind;
-  const paragraph=document.createElement("p");paragraph.textContent=text;message.append(paragraph);
+  message.className="message is-new "+kind;
+  const speaker=document.createElement("span");
+  speaker.className="visually-hidden";
+  speaker.textContent=kind==="answer"?"Sponsor Desk: ":"You: ";
+  message.append(speaker);
+  for(const part of text.split(/\n\n+/)){
+    const paragraph=document.createElement("p");
+    paragraph.textContent=part;
+    message.append(paragraph);
+  }
   for(const ref of refs){
     const note=document.createElement("small");
     if(ref.url&&ref.url.startsWith("https://github.com/dharavathshivaji5522/risa-sponsor-desk/")){
@@ -253,23 +269,33 @@ function bubble(text,kind,refs=[],draft=null){
     const key=crypto.randomUUID();drafts.set(key,draft);
     const button=document.createElement("button");button.type="button";button.className="btn secondary small";button.dataset.draft=key;button.textContent="Review task draft";message.append(button);
   }
-  $("#chat").append(message);$("#chat").scrollTop=$("#chat").scrollHeight;
-  return message;
+  return appendMessage(message);
 }
+
+function typingBubble(){
+  const message=document.createElement("div");
+  message.className="message answer typing is-new";
+  message.setAttribute("aria-hidden","true");
+  for(let i=0;i<3;i++)message.append(document.createElement("span"));
+  return appendMessage(message);
+}
+
 async function ask(question){
   if(pendingAsk||!question.trim())return;
   pendingAsk=true;
   const button=$("#ask-form button");
-  button.disabled=true;
+  const reset=$("#reset-chat");
+  button.disabled=reset.disabled=true;
   bubble(question,"question");
-  const loading=bubble("Checking campaign records…","answer");
+  const loading=typingBubble();
   try {
     const payload={q:question,mode,context:askContext,...(view==="history"&&{scope:"history",date:historyOptions.date})};
-    const response=await api("/api/ask",payload);
+    const delay=matchMedia("(prefers-reduced-motion: reduce)").matches?0:220;
+    const [response]=await Promise.all([api("/api/ask",payload),new Promise(resolve=>setTimeout(resolve,delay))]);
     if(response.context)askContext=response.context;
     loading.remove();bubble(response.answer,"answer",response.refs,response.draft);
   }catch(err){loading.remove();bubble(err.message,"answer");}
-  finally{pendingAsk=false;button.disabled=false;}
+  finally{pendingAsk=false;button.disabled=reset.disabled=false;}
 }
 document.addEventListener("click",ev=>{
   const button=ev.target.closest("button");
@@ -291,7 +317,7 @@ document.addEventListener("submit",ev=>{
 });
 $("#retry-workspace").addEventListener("click",()=>{if(state&&view==="history")fetchHistory();else load();});
 $("#reset-chat").addEventListener("click",()=>{
-  if(pendingAsk)return;$("#chat").replaceChildren();askContext={};drafts.clear();bubble("Ask me to compare campaigns, find a bottleneck, or draft a follow-up task.","answer");
+  if(pendingAsk)return;chat.replaceChildren();askContext={};drafts.clear();bubble(chatGreeting,"answer");
 });
 $("#ask-form").addEventListener("submit",ev=>{
   ev.preventDefault();if(pendingAsk)return;const entry=$("#ask-text");const question=entry.value.trim();if(question){entry.value="";ask(question);}

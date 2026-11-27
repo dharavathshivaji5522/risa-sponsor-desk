@@ -58,6 +58,36 @@ test("Copilot answers new values, carries date and campaign context, and decline
   assert.equal(task.draft.campaign,weakest.context.campaign);
 });
 
+test("Copilot answers identity, greetings and practical follow-ups before data routing",()=>{
+  const state=initial();
+  const reply=(q,extra={})=>answerQuestion({q,...extra},state);
+  for(const query of ["who are you ?", "Hey! Who are you?", "What's your name?", "Can you introduce yourself?"]){
+    for(const scope of [undefined,"history"]){
+      const answer=reply(query,{scope});
+      assert.match(answer.answer,/Sponsor Desk chatbot/);
+      assert.equal(answer.refs.length,0);
+      assert.equal(answer.draft,undefined);
+    }
+  }
+  assert.match(reply("Hi!").answer,/Sponsor Desk chatbot/);
+  assert.match(reply("What can you do?").answer,/How much have we raised/);
+  assert.match(reply("Who wrote Hamlet?").answer,/enough information/);
+  assert.match(reply("Who owns inbound?").answer,/Kabir owns Inbound/);
+  assert.match(reply("Who owns this campaign?").answer,/Which campaign/);
+  assert.match(reply("How much have we raised?").answer,/₹9\.50L/);
+  assert.match(reply("Are we on track?").answer,/₹1\.11L below the target/);
+  assert.match(reply("How many deals have been paid?").answer,/10 paid deals/);
+  assert.equal(reply("Where does the data come from?").refs.length,2);
+  const ranking=reply("Which campaign collected the most cash?");
+  assert.match(ranking.answer,/Creator referrals leads with ₹4\.50L/);
+  state.campaigns.warm.cash=640000;
+  assert.match(reply("Which campaign collected the most cash?").answer,/Warm introductions leads with ₹6\.40L/);
+  const diagnosis=reply("Where are we behind?");
+  assert.match(diagnosis.answer,/Inbound fast lane.*₹1\.10L/);
+  assert.match(reply("Why?",{context:diagnosis.context}).answer,/74%/);
+  assert.match(reply("How many cash deals were confirmed on April 11?").answer,/20 cash deals/);
+});
+
 test("workspace updates validate inputs and Copilot drafts require an explicit save",()=>{
   const state=initial();
   const draft=answerQuestion({q:"Draft a follow-up task for inbound fast lane"},state).draft;

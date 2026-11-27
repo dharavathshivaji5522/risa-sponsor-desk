@@ -64,11 +64,11 @@
     <aside class="copilot surface" aria-labelledby="copilot-title">
       <div class="copilot-top">
         <span class="copilot-icon"><svg class="ico"><use href="#i-star"/></svg></span>
-        <div><h2 id="copilot-title">Growth Copilot</h2><p>Ask about your data</p></div>
+        <div><h2 id="copilot-title">Growth Copilot</h2><p>Sponsor Desk chatbot</p></div>
         <button id="reset-chat" class="icon-btn" type="button" aria-label="Reset chat"><svg class="ico"><use href="#i-refresh"/></svg></button>
       </div>
-      <div id="chat" class="chat" aria-live="polite">
-        <div class="message answer"><p>Ask me to compare campaigns, find a bottleneck, or draft a follow-up task.</p></div>
+      <div id="chat" class="chat" role="log" aria-label="Chat with Sponsor Desk">
+        <div class="message answer"><p>Hi, I’m the Sponsor Desk chatbot. Ask me about sponsorship cash, a campaign, or a follow-up task.</p></div>
       </div>
       <div class="suggestions" id="suggestions">
         <button data-preset="Which campaign has the biggest forecast gap?">Biggest cash gap</button>
@@ -77,11 +77,11 @@
         <button data-preset="Draft a follow-up task for that campaign.">Draft a task</button>
       </div>
       <form id="ask-form">
-        <label for="ask-text" class="visually-hidden">Ask about your data</label>
-        <input type="text" id="ask-text" name="question" placeholder="Ask about campaigns or cash…" maxlength="600" required>
+        <label for="ask-text" class="visually-hidden">Message Sponsor Desk</label>
+        <input type="text" id="ask-text" name="question" placeholder="Message Sponsor Desk…" maxlength="600" required>
         <button class="btn primary send" type="submit" aria-label="Send question"><svg class="ico"><use href="#i-send"/></svg></button>
       </form>
-      <p class="chat-note">Answers use source records or the current simulation.</p>
+      <p class="chat-note">Data answers cite the workbook or the simulated workspace.</p>
     </aside>
   </div>
   <footer><span>Sponsor Desk · RISA Labs Growth APM</span><div class="footer-links"><a href="./strategy.pdf" target="_blank" rel="noopener">Strategy PDF</a><a href="https://github.com/dharavathshivaji5522/risa-sponsor-desk#readme" target="_blank" rel="noopener">GitHub README</a></div></footer>
