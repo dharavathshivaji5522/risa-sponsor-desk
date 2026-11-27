@@ -14,6 +14,9 @@ from reportlab.platypus import Paragraph
 
 W, H = 1600, 900
 ROOT = Path(__file__).resolve().parent.parent
+AUTHOR = "Dharavath Shivaji"
+ROLL_NO = "23MT10022"
+RISA_LOGO = ROOT / "design/risa-wordmark.png"
 PLAN = json.loads((ROOT / "data/plan.json").read_text())
 ROWS = PLAN["campaigns"]
 LIVE = "https://dharavathshivaji5522.github.io/risa-sponsor-desk/"
@@ -26,7 +29,7 @@ parser.add_argument("output", nargs="?", type=Path, default=ROOT / "docs/strateg
 args = parser.parse_args()
 c = canvas.Canvas(str(args.output), pagesize=(W, H), pageCompression=1)
 c.setTitle("Sponsor Desk | RISA Labs Growth APM")
-c.setAuthor("Dharavath Shivaji")
+c.setAuthor(AUTHOR)
 c.setSubject("Challenge B | Cash collected before CampusFest Bengaluru")
 
 for name, weight in (("regular", "Regular"), ("bold", "Bold")):
@@ -108,20 +111,28 @@ def pill(s, x, top, w, fill, fg="ink", size=14, url=None, h=34):
         c.linkURL(url, (x, H-top-h, x+w, H-top), relative=0)
 
 
-def heading(num, section, title, lead, actions=False):
+def heading(num, section, title, lead):
     box(0, 0, W, H, "paper")
     box(0, 0, W, 204, "#FCFBF8")
     box(52, 32, 16, 4, "blue", radius=2)
     text(section, 78, 24, 16, "bold", "blueDark")
-    text("RISA Labs Growth APM  /  Challenge B", 1548, 24, 15, "bold", "muted", "right")
     text(title, 50, 52, 51, "bold", "forest")
-    text(lead, 53, 124, 19, "regular", "muted")
-    if actions:
-        pill("Open live app", 1234, 119, 145, "blue", "white", url=LIVE)
-        pill("GitHub README", 1390, 119, 158, "bluePale", "blueDark", url=README)
-    stroke(52, 171, 1548, 171, "line")
+    if num == 1:
+        text("RISA Labs Growth APM assignment", 1386, 29, 16, "bold", "muted", "right")
+        box(1403, 15, 145, 52, "ink", radius=10)
+        c.drawImage(str(RISA_LOGO), 1418, H-61, 115, 40, mask="auto")
+        text(lead, 53, 120, 19, "regular", "muted")
+        name_width = text(AUTHOR, 52, 153, 22, "bold", "ink")
+        text(f"IIT Kharagpur  ·  {ROLL_NO}", 52+name_width+21, 157, 17, "regular", "muted")
+        pill("Open live app", 1053, 123, 232, "blue", "white", size=22, url=LIVE, h=55)
+        pill("GitHub README", 1299, 123, 249, "bluePale", "blueDark", size=22, url=README, h=55)
+        stroke(52, 193, 1548, 193, "line")
+    else:
+        text("RISA Labs Growth APM  /  Challenge B", 1548, 24, 15, "bold", "muted", "right")
+        text(lead, 53, 124, 19, "regular", "muted")
+        stroke(52, 171, 1548, 171, "line")
     stroke(52, 848, 1548, 848, "line")
-    text("Dharavath Shivaji", 52, 865, 15, "bold", "ink")
+    text(AUTHOR, 52, 865, 15, "bold", "ink")
     text("IIT Kharagpur", 208, 865, 15, "regular", "muted")
     text(f"{num} / 3", 1548, 864, 15, "bold", "muted", "right")
 
@@ -173,20 +184,20 @@ live = json.loads(check_output(["node", "--input-type=module", "-e", overview_sc
 assert (live["totals"]["cash"], live["projection"], live["target"]-live["projection"]) == (950000, 2634980, 110770)
 
 # Slide 1. Stage volumes, payment conversion, and sponsor selection.
-heading(1, "Cash plan", "How much cash can CampusFest collect?",
-        "Start with Bengaluru’s tech employers, consumer brands and local businesses.", True)
+heading(1, "Challenge B  /  Sponsorship growth", "How much cash can CampusFest collect?",
+        "Bengaluru’s tech cluster makes it easier to reach employers and meet sponsors locally.")
 
 kpis = [
     ("BENCHMARK", lakh(BENCH), "₹20.00L previously pledged × 85% assumed to pay on time", "sand", "goldDark"),
-    ("BASE CASE", lakh(BASE), "29 modeled deals worth ₹30.80L at signing", "mint", "forest"),
-    ("STRETCH CASE", lakh(STRETCH), "39 modeled deals worth ₹43.70L at signing", "bluePale", "blueDark"),
+    ("BASE CASE", lakh(BASE), f"{N[0][3]} deals · {lakh(Decimal(BOOKED[0])/N[0][3])} average · {lakh(BOOKED[0])} signed", "mint", "forest"),
+    ("STRETCH CASE", lakh(STRETCH), f"{N[1][3]} deals · {lakh(Decimal(BOOKED[1])/N[1][3])} average · {lakh(BOOKED[1])} signed", "bluePale", "blueDark"),
 ]
 for i, (name, value, caption, fill, fg) in enumerate(kpis):
     x = 52+i*505
-    box(x, 185, 486, 118, fill, radius=15)
-    text(name, x+20, 198, 14, "bold", fg)
-    text(value, x+18, 222, 43, "bold", fg)
-    paragraph(caption, x+20, 273, 448, 14, 17, fg, 298)
+    box(x, 207, 486, 106, fill, radius=15)
+    text(name, x+20, 217, 14, "bold", fg)
+    text(value, x+18, 239, 38, "bold", fg)
+    paragraph(caption, x+20, 283, 448, 14, 17, fg, 308)
 
 panel(52, 326, 912, 410, "From prospect to signed deal", "Each prospect counts once. Rates compare with the previous stage.")
 dot(648, 367, 5, "teal"); text("Base", 662, 355, 15, "bold", "muted")
@@ -209,39 +220,42 @@ for idx, (name, x) in enumerate(zip(stages, centres, strict=True)):
     else:
         text("Named brands",x,598,15,"regular","muted","center")
 stroke(74,633,942,633,"line")
-box(76,653,864,58,"grayPale",radius=9)
-text("Share paid by 11 April",92,664,17,"bold","ink")
-text(f"{BASE/BOOKED[0]:.1%} base",347,665,16,"bold","teal")
-text(f"{STRETCH/BOOKED[1]:.1%} stretch",499,665,16,"bold","blueDark")
-text("Weighted by deal value",924,666,14,"regular","muted","right")
+box(76,649,864,67,"grayPale",radius=9)
+text("Cash collected by 11 April",92,658,17,"bold","ink")
+text(f"{lakh(BASE)} base ({BASE/BOOKED[0]:.1%})", 384,659,16,"bold","teal")
+text(f"{lakh(STRETCH)} stretch ({STRETCH/BOOKED[1]:.1%})", 662,659,16,"bold","blueDark")
+text("Signed deals × average deal size × on-time payment rate, summed across channels.",92,686,14,"regular","muted")
 
 panel(984,326,564,410,"Where to find sponsors","Past cash commitments by source")
 series = [("Creator referrals",725000,"teal"),("Warm introductions",640000,"blue"),("Partner interest form",635000,"violet")]
 for i,(label,val,fill) in enumerate(series):
-    y=417+37*i
+    y=410+32*i
     text(label,1007,y,15,"bold","ink")
     box(1202,y+6,254,10,"grayPale",radius=4)
     box(1202,y+6,254*val/725000,10,fill,radius=4)
     text(lakh(val),1526,y-1,15,"bold","muted","right")
-text("₹20.00L total   /   20 cash deals   /   ₹95k median",1007,537,14,"bold","muted")
-stroke(1006,567,1526,567,"line")
+text("₹20.00L total   /   20 cash deals   /   ₹95k median",1007,512,14,"bold","muted")
+stroke(1006,538,1526,538,"line")
 sponsors=[
   ("Tech and career brands","Student demos and opt-in recruiting leads."),
   ("Consumer brands","Category exclusivity and on-site trials."),
   ("Local businesses","Fixed-price booths and early payment approval.")
 ]
 for i,(label,description) in enumerate(sponsors):
-    y=586+42*i
+    y=549+39*i
     dot(1012,y+10,4,"blue" if i==0 else "teal" if i==1 else "gold")
     text(label,1025,y,15,"bold","ink")
     text(description,1025,y+18,14,"regular","muted")
+box(1006,675,520,45,"grayPale",radius=8)
+text("Screen for student fit, access to a budget owner,",1017,680,13,"bold","forest")
+text("payment by 11 April, and no category conflicts.",1017,697,13,"regular","muted")
 
 box(52,756,1496,69,"forest",radius=13)
 text("Six weeks to sell",72,769,19,"bold","white")
 text("₹1.20L acquisition budget",355,770,18,"bold","mintBright")
 text("4 owners × 6 conversations/week",713,770,18,"bold","white")
 text("144-conversation capacity",1526,770,16,"regular","mintBright","right")
-text("Cutoff 11 Apr 2025",72,797,14,"regular","mintBright")
+text("Cash cutoff 11 Apr 2025",72,797,14,"regular","mintBright")
 text("The workbook records pledges. We estimate how much arrives by the cutoff.",355,797,15,"regular","white")
 link("Source workbook",WORKBOOK,355,866)
 link("Bengaluru source",CITY,520,866)
@@ -293,11 +307,11 @@ text("75% to the three established sources",74,789,15,"bold","forest")
 
 panel(931,224,617,598,"What we’ll test first","40% cash lift · 25% evidence · 20% speed · 15% ease")
 descriptions={
-    "creator": ("Student demos and creator content", "10 introductions by D−28 / qualification rate"),
-    "warm": ("Alumni introductions to anchor brands", "10 introductions by D−28 / decision-maker calls"),
-    "inbound": ("Fixed-price offer and same-day triage", "10 inquiries by D−21 / 24-hour first response"),
-    "revival": ("Smaller offer for dormant, eligible leads", "15 dormant leads by D−24 / positive reply rate"),
-    "cold": ("Small outbound test by sponsor category", "25 delivered emails by D−25 / positive reply rate")
+    "creator": ("Creator intros build trust and open doors for demos.", "10 introductions by D−28 / qualification rate"),
+    "warm": ("Alumni introductions get us to budget owners.", "10 introductions by D−28 / decision-maker calls"),
+    "inbound": ("A same-day quote makes it easier to act on interest.", "10 inquiries by D−21 / 24-hour first response"),
+    "revival": ("A smaller offer may reopen stalled deals.", "15 dormant leads by D−24 / positive reply rate"),
+    "cold": ("A capped email test reaches untapped categories.", "25 delivered emails by D−25 / positive reply rate")
 }
 for i,(row,fill) in enumerate(zip(ROWS,budget_colors,strict=True)):
     y=303+i*93
@@ -310,8 +324,10 @@ for i,(row,fill) in enumerate(zip(ROWS,budget_colors,strict=True)):
     text(f"{lakh(data_value(row,'base'))} base",1526,y+28,14,"bold","blueDark","right")
     text(f"{row['owner']}  /  {row['window']}",1526,y+49,13,"regular","muted","right")
     stroke(951,y+79,1526,y+79)
-text("Give each prospect one owner. Pause cold outreach if fewer than 6% reply positively.",952,782,13,"bold","muted")
-l=link("Full channel assumptions",README,355,866)
+text("Assign each prospect to one channel. Keep revival and cold outreach small.",952,776,13,"bold","muted")
+text("Pause cold outreach below 6% positive replies after 25 delivered emails.",952,795,13,"regular","muted")
+link("Full channel assumptions",README,355,866)
+text("D is festival day, 12 Apr 2025.",1456,866,13,"regular","muted","right")
 c.showPage()
 
 # Slide 3. Diverging forecast gaps, operational decisions and saved workflow.
@@ -395,14 +411,13 @@ for i,row in enumerate(live["details"]):
 text("If a campaign needs a change, adjust the pitch or assign a new owner and check the next batch.",609,673,13,"regular","muted")
 
 panel(591,711,957,110,"Review in Sponsor Desk")
-for j,(letter,title) in enumerate([("1","Find the gap"),("2","Ask Copilot why"),("3","Confirm a task")]):
-    x=608+j*237
-    dot(x+11,783,10,"blue")
-    text(letter,x+11,774,12,"bold","white","center")
-    text(title,x+30,771,16,"bold","ink")
-    if j<2:
-        stroke(x+172,783,x+218,783,"blueLight",1.4)
-pill("Open live app",1381,765,147,"blue","white",url=LIVE)
+text("Ask “Which campaign has the biggest forecast gap?” Then follow up with “Why?”",609,757,14,"regular","muted")
+steps = [(608,"Dashboard flags inbound"),(851,"Copilot explains the 74% signal"),(1124,"Confirm Kabir’s task")]
+for j,(x,title) in enumerate(steps, start=1):
+    dot(x+11,795,10,"blue")
+    text(str(j),x+11,785,12,"bold","white","center")
+    text(title,x+28,783,15,"bold","ink")
+pill("Open live app",1323,757,203,"blue","white",size=19,url=LIVE,h=48)
 link("Model and test notes",README,355,866)
 text("Page 3 shows the app’s simulated workspace.",1456,866,13,"regular","muted","right")
 c.showPage()
