@@ -77,7 +77,7 @@ def dot(x, y, r, fill):
 
 
 def text(s, x, top, size=18, font="regular", fill="ink", align="left"):
-    s = s.replace("−", "-")
+    s = s.replace("−", "-").replace("–", "-")
     c.setFillColor(color(fill))
     c.setFont(font, size)
     drawer = {"left": c.drawString, "center": c.drawCentredString, "right": c.drawRightString}[align]
@@ -88,7 +88,7 @@ def text(s, x, top, size=18, font="regular", fill="ink", align="left"):
 def paragraph(s, x, top, w, size=16, leading=22, fill="muted", bottom=None):
     style = ParagraphStyle("body", fontName="regular", fontSize=size, leading=leading,
                            textColor=color(fill), spaceAfter=0, spaceBefore=0)
-    p = Paragraph(s.replace("−", "-"), style)
+    p = Paragraph(s.replace("−", "-").replace("–", "-"), style)
     _, height = p.wrap(w, H)
     if bottom is not None and top + height > bottom:
         raise ValueError(f"{top+height}>{bottom}: {s}")
