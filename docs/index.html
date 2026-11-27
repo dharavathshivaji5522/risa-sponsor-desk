@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f7f5fc"><meta name="description" content="Sponsor Desk tracks confirmed deals, simulated cash collection and campaign decisions for CampusFest Bengaluru.">
+<title>Sponsor Desk · CampusFest Bengaluru</title>
+<link rel="icon" href="./icon.svg"><link rel="stylesheet" href="./style.css">
+<script defer src="./engine.js"></script><script defer src="./app.js"></script>
+</head>
+<body>
+<svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 19h16M5 15l5-5 4 3 5-7m-4 0h4v4"/></symbol>
+<symbol id="i-brief" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="3"/><path d="M9 7V3h6v4M3 12h18m-10 0h2v4h-2z"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M10 6h10M10 12h10M10 18h10M3 5l2 2 3-4m-5 9 2 2 3-4m-5 9 2 2 3-4"/></symbol>
+<symbol id="i-data" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 2 4 3 8 3s8-1 8-3V6M4 12v6c0 2 4 3 8 3s8-1 8-3v-6"/></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><path d="M11 2c1 6 3 8 9 9-6 1-8 3-9 9-1-6-3-8-9-9 6-1 8-3 9-9Zm9 0v5m-2.5-2.5h5M20 16v5m-2.5-2.5h5"/></symbol>
+<symbol id="i-add" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 10h18"/></symbol>
+<symbol id="i-wallet" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="15" rx="3"/><path d="M21 11h-5a2 2 0 0 0 0 4h5m-5-2h1"/></symbol>
+<symbol id="i-target" viewBox="0 0 24 24"><circle cx="11" cy="13" r="8"/><circle cx="11" cy="13" r="4"/><path d="m11 13 9-9m-4 0h4v4"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="m3 11 17-7-5 16-4-7-8-2Zm8 2 9-9"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="m13 6 5 5m-13 8 1-5L17 3l4 4-11 11-5 1Zm7 1h9"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-note" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Zm8 0v5h4M9 12h6m-6 4h6"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 7h16M7 12h10m-7 5h4"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2 7m2-11v5h-5"/></symbol>
+</svg>
+
+<header class="top">
+  <div class="shell header">
+    <a href="./" class="wordmark"><img src="./icon.svg" width="43" height="43" alt=""><span>Sponsor Desk<small>CampusFest Bengaluru</small></span></a>
+    <nav aria-label="Workspace">
+      <button data-view="dashboard" aria-current="page"><svg class="ico"><use href="#i-grid"/></svg>Overview</button>
+      <button data-view="campaigns"><svg class="ico"><use href="#i-brief"/></svg>Campaigns</button>
+      <button data-view="tasks"><svg class="ico"><use href="#i-list"/></svg>Tasks</button>
+      <button data-view="history"><svg class="ico"><use href="#i-data"/></svg>Sources</button>
+    </nav>
+    <button class="btn top-task" data-new-task type="button"><svg class="ico"><use href="#i-add"/></svg>New task</button>
+  </div>
+</header>
+
+<main class="shell">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <div class="hero-label"><svg class="ico"><use href="#i-calendar"/></svg> CampusFest 2025 · Challenge B</div>
+      <h1 id="hero-title">Sponsorship overview</h1>
+      <p>Track cash before festival day and see which campaigns are worth more effort.</p>
+      <div class="hero-meta"><span>Simulated workspace</span><span class="sep"></span><span>Cash cutoff · 11 Apr 2025</span></div>
+    </div>
+    <div class="hero-visual" aria-hidden="true"><i></i><i></i><i></i><div class="target-art"><svg class="ico"><use href="#i-target"/></svg></div><div class="orbit"></div></div>
+    <div class="hero-progress">
+      <span>Target funded</span><strong id="hero-progress">—</strong><small id="hero-target">Loading scenario…</small>
+    </div>
+  </section>
+
+  <div class="workspace">
+    <div class="main-content">
+      <div id="status-error" class="error-banner" hidden><span></span><button class="btn secondary small" id="retry-workspace" type="button">Retry</button></div>
+      <section id="main-view" aria-label="Workspace content"><p class="loading">Loading the workspace…</p></section>
+    </div>
+
+    <aside class="copilot surface" aria-labelledby="copilot-title">
+      <div class="copilot-top">
+        <span class="copilot-icon"><svg class="ico"><use href="#i-star"/></svg></span>
+        <div><h2 id="copilot-title">Growth Copilot</h2><p>Ask about your data</p></div>
+        <button id="reset-chat" class="icon-btn" type="button" aria-label="Reset chat"><svg class="ico"><use href="#i-refresh"/></svg></button>
+      </div>
+      <div id="chat" class="chat" aria-live="polite">
+        <div class="message answer"><p>Ask me to compare campaigns, find a bottleneck, or draft a follow-up task.</p></div>
+      </div>
+      <div class="suggestions" id="suggestions">
+        <button data-preset="Which campaign has the biggest forecast gap?">Biggest cash gap</button>
+        <button data-preset="How much cash has the workspace collected?">Cash collected</button>
+        <button data-preset="What was Beardo’s status on March 15?">Beardo on 15 Mar</button>
+        <button data-preset="Draft a follow-up task for that campaign.">Draft a task</button>
+      </div>
+      <form id="ask-form">
+        <label for="ask-text" class="visually-hidden">Ask about your data</label>
+        <input type="text" id="ask-text" name="question" placeholder="Ask about campaigns or cash…" maxlength="600" required>
+        <button class="btn primary send" type="submit" aria-label="Send question"><svg class="ico"><use href="#i-send"/></svg></button>
+      </form>
+      <p class="chat-note">Answers use source records or the current simulation.</p>
+    </aside>
+  </div>
+  <footer><span>Sponsor Desk · RISA Labs Growth APM</span><div class="footer-links"><a href="./strategy.pdf" target="_blank" rel="noopener">Strategy PDF</a><a href="https://github.com/dharavathshivaji5522/risa-sponsor-desk#readme" target="_blank" rel="noopener">GitHub README</a></div></footer>
+</main>
+
+<dialog id="editor" aria-labelledby="edit-title">
+  <form method="dialog" class="dialog-x"><button class="icon-btn" aria-label="Close editor"><svg class="ico"><use href="#i-close"/></svg></button></form>
+  <div id="dialog-content"></div>
+</dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
