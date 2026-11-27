@@ -47,7 +47,7 @@ Copilot resolves the historical or simulated scope, date, campaign, metric, and 
 - `npm test` checks baseline figures, funnel ratios, thresholds, snapshots, changed data, validation, task idempotency, and prompt regressions. Run `npm run test:report` to reproduce the [question-by-question report](TEST-/Users/nunavathpoojitha/Documents/ChatGPT/project_1/risa-sponsor-desk-githubRT.md).
 - For browser checks, install Playwright with `npm install --no-save --package-lock=false playwright` and `npx playwright install chromium webkit`. Start the built site with `npm start`, then run `SPONSOR_DESK_ENGINES=chromium,webkit npm run test:browser`. Set `SPONSOR_DESK_URL` to check the public deployment. Optional environment variables `PLAYWRIGHT_MODULE` and `CHROMIUM_EXECUTABLE` point to an existing Playwright installation and Chrome binary.
 - Browser checks use fresh contexts. They cover the dashboard, scenario switching, data edits, task confirmation and refresh persistence, historical filters, the original XLSX download, stale-tab conflicts, mobile keyboard and reduced-motion support, and a corrupted record that stays intact.
-- Release results on 27 November 2026. The source suite passed 288 checks with 0 failures. The report contains 170 checked responses with 0 failures, including cases also covered by the source suite. The local browser suite passed 38 checks and workflow groups with 0 failures across Chrome and WebKit.
+- Release results on 27 November 2026. The source suite passed 292 checks with 0 failures. The report contains 174 checked responses with 0 failures, including cases also covered by the source suite. The local browser suite passed 38 checks and workflow groups with 0 failures across Chrome and WebKit.
 
 ## Assignment review
 

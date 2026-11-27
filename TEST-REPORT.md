@@ -1,6 +1,6 @@
 # Sponsor Desk Copilot test report
 
-170 passed · 0 failed across 170 checked responses.
+174 passed · 0 failed across 174 checked responses.
 
 Run `npm run test:report` to reproduce. Each case checks the expected value or statement against the actual response. The follow-up cases also check carried context and verify that chat does not save records. The browser suite separately verifies real IndexedDB writes, confirmation, and UI behavior.
 
@@ -164,10 +164,14 @@ Run `npm run test:report` to reproduce. Each case checks the expected value or s
 | Question | Expected answer elements | Actual answer and source | Result |
 | --- | --- | --- | --- |
 | What was unknown brand qqqqq worth historically? | No matching brand | No matching brand was found for “qqqqq worth” in the sponsorship workbook. Try the exact brand name or its A-number.<br>Source: Sponsorship workbook | PASS |
-| What was brand A999's status on March 15? | No matching brand<br>A999 | No matching brand was found for “A999” in the sponsorship workbook. Try the exact brand name or its A-number.<br>Source: Sponsorship workbook | PASS |
+| What was brand A999's status on March 15? | No matching brand<br>A999 | No matching brand was found for A999 in the sponsorship workbook.<br>Source: Sponsorship workbook | PASS |
 | Which brand was confirmed, Beardo or Indigo Wellness, on April 11? | Which brand do you mean<br>Beardo<br>Indigo Wellness | Which brand do you mean? I found Indigo Wellness (A094), Beardo (A001).<br>Source: Sponsorship workbook | PASS |
 | Show opportunity O999 on April 11. | No matching opportunity<br>O999 | No matching opportunity was found for O999 in the sponsorship workbook.<br>Source: Sponsorship workbook | PASS |
 | What has campaign SC99 collected? | No campaign matches<br>SC99 | No campaign matches SC99. Use a campaign name or a campaign ID listed in the Sources tab. | PASS |
+| What is the combined budget for SC04 and SC99? | No campaign matches SC99 | No campaign matches SC99. Use a campaign name or a campaign ID listed in the Sources tab. | PASS |
+| Create a task for SC03. | Brand Leader LinkedIn is in the workbook<br>Choose a campaign | Brand Leader LinkedIn is in the workbook. Choose a campaign from the simulated workspace for a forecast, budget question, or task draft.<br>Source: Sponsorship workbook | PASS |
+| What if collection for SC03 is 80%? | Brand Leader LinkedIn is in the workbook<br>simulated workspace | Brand Leader LinkedIn is in the workbook. Choose a campaign from the simulated workspace for a forecast, budget question, or task draft.<br>Source: Sponsorship workbook | PASS |
+| What is the cash realization of A001 in the current workspace? | aggregated by campaign<br>historical sponsorship workbook | The simulation is aggregated by campaign. The historical sponsorship workbook has brand and opportunity records.<br>Source: Sponsorship workbook | PASS |
 | What are the plans for an unknown campaign? | No matching campaign | No matching campaign was found. Try its name or the campaign ID shown in Sources.<br>Source: Sponsorship workbook | PASS |
 | What was Beardo’s status in history on February 30? | Select a date in that range | The workbook covers January 15 through April 20, 2025 in Asia/Kolkata. Select a date in that range.<br>Source: Sponsorship workbook | PASS |
 | Historical results on 2024-03-15 | Select a date in that range | The workbook covers January 15 through April 20, 2025 in Asia/Kolkata. Select a date in that range.<br>Source: Sponsorship workbook | PASS |

@@ -266,18 +266,33 @@ function answerTurn(input,state) {
   const requested=distinctCampaigns(q,board);
   const namedHistorical=DATA.sponsor["Sponsor campaigns"].filter(c=>containsEntity(normalizeEntity(q),normalizeEntity(c.campaign_name)) || containsEntity(normalizeEntity(q),c.sponsor_campaign_id.toLowerCase()));
   const opportunity=q.match(/\bo\d{2,5}\b/i)?.[0].toUpperCase();
-  const requestedId=q.match(/\bsc\d{2,5}\b/i)?.[0].toUpperCase();
+  const requestedIds=[...q.matchAll(/\bsc\d{2,5}\b/gi)].map(match=>match[0].toUpperCase());
   const historyHint=/\bhistor\w*|\boriginal\b|\bworkbook\b|\bdataset\b|source sheet|attend|check.in|activation|as of|records before/.test(q);
   const draft=/\b(create|draft|add|assign|turn)\b/.test(q) && /\b(tasks?|action items?|follow.?up)\b/.test(q);
   const scenario=parseScenario(q,context,followup);
   const brandMatch=resolveBrands(question);
   const namedBrand=namedBrandInQuestion(question);
   const evidence=[{label:"Sponsorship workbook",url:DATA.links.sponsorship}];
+  const unknownCampaignId=requestedIds.find(id=>!namedHistorical.some(c=>c.sponsor_campaign_id===id));
+  const unknownBrandId=[...q.matchAll(/\ba\d{2,5}\b/gi)].map(match=>match[0].toUpperCase())
+    .find(id=>!DATA.sponsor.Brands.some(brand=>brand.brand_id===id));
   if (/\b(?:unknown campaign|campaign named|channel named)\b/.test(q) && !requested.length&&!namedHistorical.length) {
     return {answer:"No matching campaign was found. Try its name or the campaign ID shown in Sources.",refs:evidence};
   }
-  if (requestedId && !namedHistorical.some(c=>c.sponsor_campaign_id===requestedId)) {
-    return {answer:`No campaign matches ${requestedId}. Use a campaign name or a campaign ID listed in the Sources tab.`,refs:[]};
+  if (unknownCampaignId) {
+    return {answer:`No campaign matches ${unknownCampaignId}. Use a campaign name or a campaign ID listed in the Sources tab.`,refs:[]};
+  }
+  if (unknownBrandId) return {answer:`No matching brand was found for ${unknownBrandId} in the sponsorship workbook.`,refs:evidence};
+  const archiveOnly=namedHistorical.find(c=>!board.details.some(row=>row.source===c.sponsor_campaign_id));
+  if (archiveOnly && (explicitLive || draft || scenario)) {
+    return {answer:`${archiveOnly.campaign_name} is in the workbook. Choose a campaign from the simulated workspace for a forecast, budget question, or task draft.`,refs:evidence};
+  }
+  if (explicitLive && !draft && (brandMatch.length || opportunity)) {
+    return {answer:"The simulation is aggregated by campaign. The historical sponsorship workbook has brand and opportunity records.",refs:evidence};
+  }
+  if (draft && !requested.length && (brandMatch.length || namedBrand || opportunity ||
+      followup && context.scope==="history" && !board.details.some(row=>row.source===context.campaign))) {
+    return {answer:"Which simulated campaign should own this task? Choose a campaign such as Inbound fast lane or Warm introductions.",refs:[]};
   }
   if (!explicitLive && !draft && !scenario && (brandMatch.length || namedBrand || opportunity)) {
     if (brandMatch.length>1) return {answer:`Which brand do you mean? I found ${brandMatch.slice(0,5).map(brand=>brand.brand_name+" ("+brand.brand_id+")").join(", ")}.`,refs:evidence};
