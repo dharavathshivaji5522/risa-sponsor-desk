@@ -242,7 +242,9 @@ const chat=$("#chat");
 const chatGreeting=chat.firstElementChild.textContent;
 function appendMessage(message){
   chat.append(message);
-  chat.scrollTop=chat.scrollHeight;
+  const inset=parseFloat(getComputedStyle(chat).paddingTop);
+  const fits=message.offsetHeight<=chat.clientHeight-inset*2;
+  chat.scrollTop=fits?chat.scrollHeight:message.offsetTop-inset;
   return message;
 }
 

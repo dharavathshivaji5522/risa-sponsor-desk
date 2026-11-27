@@ -16,6 +16,7 @@
 .tag{display:inline-flex;align-items:center;padding:4px 7px;border-radius:999px;background:#eee8f8;color:#634998;white-space:nowrap;font-weight:800;font-size:.71rem;line-height:1.2}.tag.scale,.tag.done{background:#e6f6ed;color:#24634c}.tag.change,.tag.in-progress{background:#fff2dc;color:#7a5121}.tag.stop{background:#fce8eb;color:#8f3c59}.tag.collect-data{background:#eaf0fc;color:#465784}.tag .dot{width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px}
 .copilot{position:sticky;top:12px;padding:14px;min-width:0;background:linear-gradient(160deg,#fff,#faf7ff)}.copilot-top{display:flex;align-items:center;gap:9px;padding-bottom:11px;border-bottom:1px solid #eee7f5}.copilot-top h2{font-size:1.03rem;letter-spacing:-.02em}.copilot-top p{font-size:.76rem;color:var(--muted);margin-top:2px}.copilot-top .icon-btn{margin-left:auto}.copilot-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(145deg,#e9deff,#cbb1fb);color:#603cb2;box-shadow:inset 1px 2px 4px #fff,0 4px 6px #68439b24}.copilot-icon .ico{width:22px;height:22px}
 .chat {
+  position: relative;
   height: 284px;
   display: flex;
   flex-direction: column;
