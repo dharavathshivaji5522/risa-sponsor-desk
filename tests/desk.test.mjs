@@ -1,13 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
-import {runInNewContext} from "node:vm";
+import {engine} from "./fixture.mjs";
 
-const fixture = (file)=>readFileSync(file,"utf8");
-const {getHistorySnapshot,attendance,overview,initial,answerQuestion,applyChange,historicalQuery} = runInNewContext(
-  "const DATA="+fixture("data/history.json")+"; const PLAN="+fixture("data/plan.json")+";"+
-  fixture("src/analytics.js")+fixture("src/copilot.js")+fixture("src/worker.js").split("const database =")[0]+";({getHistorySnapshot,attendance,overview,initial,answerQuestion,applyChange,historicalQuery})",{crypto}
-);
+const {getHistorySnapshot,attendance,overview,initial,answerQuestion,applyChange,historicalQuery}=engine;
 
 test("historical snapshots deduplicate IDs, use latest state, and separate cash from in-kind",()=>{
   const before=getHistorySnapshot("2025-04-11");

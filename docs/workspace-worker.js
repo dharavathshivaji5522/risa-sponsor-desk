@@ -87,16 +87,20 @@ function decision(config, actual) {
   return "Stop";
 }
 
-function forecast(config, actual, mode) {
+function forecastCloseRate(actual, target) {
+  return (actual.signed + 6*(target.signed / target.proposals)) / (actual.proposals+6);
+}
+
+function forecast(config, actual, mode, assumptions = {}) {
   const target = planRow(config,mode);
   const balance = actual.signedValue - actual.cash;
-  const closeRate = (actual.signed + 6*(target.signed / target.proposals)) / (actual.proposals+6);
+  const closeRate = assumptions.closeRate ?? forecastCloseRate(actual,target);
   const remainingDays = Math.round((Date.parse(PLAN.deadline)-Date.parse(PLAN.today))/86_400_000);
   const elapsed = Math.max(1,42-remainingDays);
   const newProposals = Math.min(Math.max(0,target.proposals-actual.proposals),Math.floor(actual.proposals/elapsed*remainingDays));
   const pace = {"Scale":1,"Change":0.6,"Stop":0,"Collect data":0.4}[decision(config,actual)];
   const additionalSigned = Math.min(Math.max(0,target.signed-actual.signed),(Math.max(0,actual.proposals-actual.signed)+newProposals)*closeRate*pace);
-  return Math.round(actual.cash + (balance + additionalSigned*target.deal)*target.collect);
+  return Math.round(actual.cash + (balance + additionalSigned*(assumptions.deal ?? target.deal))*(assumptions.collect ?? target.collect));
 }
 
 function overview(state, mode = "base") {
@@ -117,6 +121,378 @@ function initial() {
     {id:"t-2",campaign:"warm",title:"Confirm finance owners and payment dates",owner:"Arjun",due:"2025-03-31",status:"To do",note:"Lock the payment schedule for signed anchor deals."},
     {id:"t-3",campaign:"creator",title:"Send activation briefs to creator partners",owner:"Meera",due:"2025-03-26",status:"Done",note:"Shared the student demo package."}
   ]};
+}
+
+const countFormat = n => String(n.toLocaleString("en-IN"));
+const precisePercent = n => n.toLocaleString("en-IN",{maximumFractionDigits:2}) + "%";
+const multiple = n => n.toFixed(2) + "×";
+const formatMetric = (value,format) => value === null ? "undefined" : format(value);
+const exactCash = value => inr(value) + " (" + lakhs(value) + ")";
+const additive = (key,label,format=countFormat) => ({
+  label,format,parts:[row=>row.actual[key]]
+});
+const quotient = (label, numerator, denominator, format=precisePercent, scale=100, terms=[]) =>
+  ({label,parts:[numerator,denominator],format,scale,terms});
+const difference = (label,left,right) => ({label,format:inr,parts:[left,right],subtract:true});
+const field = key => row => row.actual[key];
+const collectCash = field("cash");
+const signedValue = field("signedValue");
+const spent = field("spend");
+const assignedBudget = row=>row.budget;
+const cashTarget = row=>row.plan.cash;
+const projected = row=>row.projection;
+
+const metrics = {
+  prospects:additive("prospects","prospects"),
+  conversations:additive("conversations","conversations"),
+  proposals:additive("proposals","proposals"),
+  signed:additive("signed","signed deals"),
+  paid:additive("paid","paid deals"),
+  cash:additive("cash","simulated receipts",exactCash),
+  signedValue:additive("signedValue","signed cash value",inr),
+  spend:additive("spend","acquisition spend",inr),
+  budget:{label:"acquisition budget",format:inr,parts:[assignedBudget]},
+  forecast:{label:"cash forecast",format:exactCash,parts:[projected]},
+  target:{label:"cash target",format:inr,parts:[cashTarget]},
+  benchmark:{label:"historical planning benchmark",format:inr,parts:[row=>row.plan.baseline]},
+  budgetLeft:difference("remaining acquisition budget",assignedBudget,spent),
+  unpaid:difference("outstanding signed cash",signedValue,collectCash),
+  cashRequired:{...difference("cash still needed to reach the target",cashTarget,collectCash),floor:true},
+  forecastGap:{...difference("forecast shortfall",cashTarget,projected),floor:true},
+  progress:quotient("target funded by receipts",collectCash,cashTarget,precisePercent,100,["receipts","target"]),
+  forecastProgress:quotient("forecast target achievement",projected,cashTarget,precisePercent,100,["forecast","target"]),
+  budgetUse:quotient("budget used",spent,assignedBudget,precisePercent,100,["spend","budget"]),
+  budgetLeftShare:quotient("budget remaining",row=>row.budget-row.actual.spend,assignedBudget,precisePercent,100,["remaining budget","budget"]),
+  realization:quotient("cash realization",collectCash,signedValue,precisePercent,100,["receipts","signed cash value"]),
+  cashEfficiency:quotient("cash collected per rupee spent",collectCash,spent,multiple,1,["receipts","spend"]),
+  incrementalEfficiency:quotient("modeled incremental cash per rupee of budget",row=>row.plan.cash-row.plan.baseline,assignedBudget,multiple,1,["increment above planning benchmark","budget"]),
+  signal:{label:"leading signal",format:precisePercent,parts:[field("signal")],campaignOnly:true},
+  priority:{label:"priority score",format:n=>n.toFixed(2)+" / 5",parts:[row=>row.plan.priority],campaignOnly:true}
+};
+const toStage = {
+  prospects:[/\bprospect\w*\b|outreach leads/,"prospects"],
+  conversations:[/\bconvers\w*\b|\bmeetings?\b/,"conversations"],
+  proposals:[/\bpropos\w*\b|\bquotes?\b/,"proposals"],
+  signed:[/\bsign\w*\b|\bclos(?:e|ed|ing)\b|\bwon\b|\bdeals?\b/,"signed deals"],
+  paid:[/\bpaid\b|\bpayment\b|\breceipts?\b/,"paid deals"]
+};
+const transitions = {
+  prospectConversion:["prospects","conversations","prospect-to-conversation conversion"],
+  conversationConversion:["conversations","proposals","conversation-to-proposal conversion"],
+  proposalConversion:["proposals","signed","proposal-to-deal conversion"],
+  paidConversion:["signed","paid","signed-to-paid deal conversion"]
+};
+for (const [key,[den,num,label]] of Object.entries(transitions)) {
+  metrics[key] = quotient(label,field(num),field(den),precisePercent,100,[toStage[num][1],toStage[den][1]]);
+}
+for (const [key,[,label]] of Object.entries(toStage)) {
+  const single = {prospects:"prospect",conversations:"conversation",proposals:"proposal",signed:"signed deal",paid:"paid deal"}[key];
+  metrics["cost"+key] = quotient("cost per "+single,spent,field(key),inr,1,["acquisition spend",label]);
+}
+
+function conversionMetric(q) {
+  if (!/conver|clos(?:e|ed|ing) rate|win rate|percentage|percent|fraction|ratio|how efficient|what share/.test(q) &&
+     !/\bproposals? (?:were )?(?:turned|became|signed)\b/.test(q)) return null;
+  if (/paid/.test(q) && /deal|sign/.test(q) && !/cash value|cash to|value of|cash realiz/.test(q)) return "paidConversion";
+  if (/propos|clos(?:e|ed|ing) rate|win rate/.test(q) && (!/conversat/.test(q) || /deals?|sign|clos|won/.test(q))) return "proposalConversion";
+  if (/conversat/.test(q) && /propos/.test(q)) return "conversationConversion";
+  if (/prospect/.test(q) && /conversat|conversion/.test(q)) return "prospectConversion";
+  if (/conversion rate|close rate|closing rate|(?:lowest|highest|worst|best) conversion\b/.test(q)) return "proposalConversion";
+  return null;
+}
+
+function requestedMetric(q) {
+  const cost = q.match(/\b(?:costs?|spen[dt]|expenses?) (?:the (?:most|least) )?(?:per|for each|for every) ([a-z -]+)/)?.[1];
+  if (cost) {
+    const stage = ["paid","proposals","conversations","prospects","signed"].find(key=>toStage[key][0].test(cost));
+    if (stage) return "cost"+stage;
+  }
+  if (/incremental|increment above/.test(q) && /per (?:rupee|₹)|efficien|return on/.test(q)) return "incrementalEfficiency";
+  if (/cash .{0,26}per (?:rupee|₹)|cash .{0,12}(?:to|over|\/) spend|acquisition efficien|efficiency of acquisition|cash.*per unit spent/.test(q)) return "cashEfficiency";
+  if (/cash reali[sz]|payment conversion|collection efficien|cash (?:to|over|\/) signed|cash.{0,22}(?:relative to|divided by|as a share of).{0,10}signed|(?:signed|commitments?).{0,45}(?:received|collected|paid) (?:so far|in cash)|(?:%|percent|share|fraction|ratio).{0,35}(?:of )?signed.{0,35}(?:received|collected|paid)/.test(q)) return "realization";
+  if (/(?:\b(?:unpaid|outstanding|uncollected|still owed)\b|(?:still|left to) collect.{0,24}sign)/.test(q) && !/target|budget|forecast|invoices?/.test(q)) return "unpaid";
+  if (/planning benchmark|model(?:ed|led) benchmark/.test(q)) return "benchmark";
+  if (/forecast (?:gap|shortfall|deficit)|gap.{0,20}forecast|(?:biggest|largest|worst) (?:cash )?(?:gap|shortfall|deficit)/.test(q)) return "forecastGap";
+  if (/target|goal|funded/.test(q)) {
+    if (/percent|%|proportion|share|funded|fraction|achievement|progress|how far/.test(q)) {
+      return /forecast|projection|predicted|will (?:reach|hit|achieve)|on.track at/.test(q) ? "forecastProgress" : "progress";
+    }
+    if (/needed|still need|remain|required|how much more|what.*left/.test(q)) return "cashRequired";
+    if (!/forecast|gap|shortfall|behind|above|meet|against|why/.test(q)) return "target";
+  }
+  const conversion = conversionMetric(q);
+  if (conversion && /propos|conver|closing rate|win rate/.test(q)) return conversion;
+  if (/budget|unallocated/.test(q)) {
+    if (/remaining|unspent|unallocated|budget (?:is )?left|left in|left of|unused/.test(q)) {
+      return /percent|%|share/.test(q)?"budgetLeftShare":"budgetLeft";
+    }
+    if (/utili[sz]|used|percent.*spent|%.*spent/.test(q)) return "budgetUse";
+    if (/how much.*spen[dt]|actual spend|^spend|amount spent/.test(q)) return "spend";
+    if (!/\b(spent|spending|overview|status)\b/.test(q)) return "budget";
+  }
+  if (conversion) return conversion;
+  if (/leading (indicator|signal)|timely.response signal|\b24.hour (response|reply) rate\b/.test(q)) return "signal";
+  if (/priority scor|prioriti[sz]ation scor/.test(q)) return "priority";
+  if (/signed (?:cash )?(?:value|commitments?|amount)|contracted (?:cash|value|amount)/.test(q)) return "signedValue";
+  if (/\b(?:spend|spending|spent|expenditure)\b/.test(q)) return "spend";
+  if (/how many|count|number of|\b(?:paid|signed) deals\b|total (?:paid|signed|prospect|proposal|conversation)|(?:compare|highest|lowest|most|least).*(?:proposals|prospects|conversations)/.test(q) && !/funnel|stage/.test(q)) {
+    const stage = ["paid","signed","proposals","conversations","prospects"].find(key=>toStage[key][0].test(q));
+    if (stage) return stage;
+  }
+  if (/forecast|projected cash|expected cash|cash project/.test(q) && !/gap|shortfall|why|behind|explain|how .*calculat|on track/.test(q)) return "forecast";
+  if (/cash|receipts?|collected|raised|received/.test(q) && !/forecast|target|budget|gap|why|cost|realization|how is/.test(q)) return "cash";
+  return null;
+}
+
+function metricValue(metric, rows) {
+  const parts = metric.parts.map(get=>sum(rows,get));
+  let value = parts[0];
+  if (metric.subtract) value -= parts[1];
+  else if (parts.length===2) value = parts[1]===0 ? null : metric.scale*parts[0]/parts[1];
+  if (metric.floor) value=Math.max(0,value);
+  return {value,parts};
+}
+
+function explainMetric(metric, result) {
+  const {value,parts} = result;
+  if (value===null) return `undefined because ${metric.terms[1]} is zero`;
+  const rendered = metric.format(value);
+  if (metric.subtract) {
+    const calculation = `${inr(parts[0])} − ${inr(parts[1])}`;
+    return value===0 && parts[0]<parts[1] ? `${rendered} (${calculation}; target already covered)` :
+      `${rendered} (${calculation})`;
+  }
+  if (parts.length===1) return rendered;
+  const moneyNumerator = metric===metrics.progress || metric===metrics.forecastProgress || metric===metrics.realization ||
+    metric===metrics.budgetUse || metric===metrics.budgetLeftShare || metric.scale===1;
+  const moneyDenominator = moneyNumerator && !metric.label.startsWith("cost per");
+  const lhs = (moneyNumerator ? inr : countFormat)(parts[0]);
+  const rhs = (moneyDenominator ? inr : countFormat)(parts[1]);
+  return `${rendered} (${lhs} ${metric.terms[0]} ÷ ${rhs} ${metric.terms[1]}${metric.scale===100?" × 100":""})`;
+}
+
+function metricOperation(q) {
+  if (/\b(lowest|least|smallest|fewest|weakest|minimum|worst|cheapest|bottom)\b/.test(q)) return "min";
+  if (/\b(highest|most|largest|biggest|strongest|maximum|top|best|leads? (?:on|in|with))\b/.test(q)) return "max";
+  if (/\b(average|mean)\b/.test(q)) return "average";
+  if (/\b(difference|subtract|minus|more than|less than|apart)\b/.test(q)) return "difference";
+  if (/\b(ratio|times (?:as|more)|divide|divided)\b/.test(q)) return "ratio";
+  if (/\b(percentage|percent|%)\b/.test(q) && /\b(of|share|compared)\b/.test(q)) return "share";
+  if (/\b(sum|combined|together|add|total|aggregate)\b/.test(q)) return "sum";
+  if (/\b(compare|comparison|each (?:campaign|channel|of these)|per campaign|by campaign|versus|vs|breakdown|side by side)\b/.test(q)) return "compare";
+  return null;
+}
+
+function calculateMetric(q,key,rows,board) {
+  const metric = metrics[key];
+  if (!metric || !rows.length) return null;
+  const requestedOperation = metricOperation(q);
+  const isQuotient=metric.parts.length===2 && !metric.subtract;
+  const op = isQuotient && ["ratio","share"].includes(requestedOperation) && !/\b(?:between|versus|vs|compared to)\b/.test(q) ? null : requestedOperation;
+  const selected = rows.length===1 ? rows[0] : null;
+  const scoped = rows.length!==board.details.length || /\b(combined|together|these|both)\b/.test(q);
+  const list = rows.map(row=>({row,...metricValue(metric,[row])}));
+  const isPercent = metric.format===precisePercent;
+  const isEfficiency = /per rupee/.test(metric.label);
+  const caveat = isEfficiency ? "\nThis is a cash-to-cost measure. Full festival costs and profitability are unavailable." :
+    key==="signal" && rows.length>1 ? "\nCampaigns track different signals, so this is a numerical comparison of the recorded percentages." : "";
+  if (op==="min" || op==="max") {
+    const defined = list.filter(item=>item.value!==null).sort((a,b)=>op==="min"?a.value-b.value:b.value-a.value);
+    const undefinedRows = list.filter(item=>item.value===null).map(item=>item.row.name);
+    const note = undefinedRows.length ? `\nUndefined for ${undefinedRows.join(", ")}: no ${metric.terms[1]}.` : "";
+    if (!defined.length) return {answer:`${metric.label} is undefined for all matching campaigns.${note}`};
+    const first = defined[0];
+    const tied = defined.filter(item=>Math.abs(item.value-first.value)<1e-9);
+    const name = tied.map(item=>item.row.name).join(" and ");
+    const next = defined[tied.length];
+    const rendered = metric.format===exactCash ? lakhs(first.value) : metric.format(first.value);
+    const result = key==="cash" && op==="max" && tied.length===1 ?
+      `${name} leads with ${rendered} in simulated receipts.` :
+      `${name} ${tied.length>1?"tie for":"has"} the ${op==="max"?"highest":"lowest"} ${metric.label} at ${rendered}.`;
+    const detail = metric.parts.length>1 ? `\n${explainMetric(metric,first)}.` :
+      next && key==="cash" && op==="max" ? ` The next closest is ${next.row.name} at ${lakhs(next.value)}.` : "";
+    return {answer:result+detail+note+caveat,row:tied.length===1?first.row:undefined};
+  }
+  if (op==="average" && rows.length>1) {
+    const defined = list.filter(item=>item.value!==null);
+    const avg = defined.length ? sum(defined,"value")/defined.length : null;
+    const terms = defined.map(item=>metric.format(item.value)).join(" + ");
+    const ignored = list.length-defined.length;
+    return {answer:`Average ${metric.label} is ${formatMetric(avg,metric.format)} across ${defined.length} campaigns with a defined value.${defined.length?` (${terms}) ÷ ${defined.length}.`:""}${ignored?` ${ignored} campaign(s) have a zero denominator.`:""}${caveat}`};
+  }
+  if (["difference","ratio"].includes(op) && rows.length>2 && scoped) {
+    const delimiter=op==="difference"?/\b(?:minus|from)\b/:/\b(?:divided by|by|to|versus|vs)\b/;
+    const parts=q.split(delimiter);
+    if (parts.length===2) {
+      const groups=parts.map(part=>distinctCampaigns(part,{details:rows}));
+      if (op==="difference" && /\bsubtract\b.+\bfrom\b/.test(q)) groups.reverse();
+      if (groups.every(group=>group.length) && !groups[0].some(row=>groups[1].includes(row))) {
+        const [left,right]=groups.map(group=>metricValue(metric,group).value);
+        if (left===null||right===null||op==="ratio"&&right===0) return {answer:"The calculation is undefined because one of the group denominators is zero."};
+        const groupName=group=>group.map(row=>row.name).join(" + ");
+        const result=op==="ratio"?multiple(left/right):isPercent?precisePercent(left-right).replace("%"," percentage points"):metric.format(left-right);
+        return {answer:`The ${metric.label} ${op} is ${result} (${groupName(groups[0])}: ${metric.format(left)} ${op==="ratio"?"÷":"−"} ${groupName(groups[1])}: ${metric.format(right)}).${caveat}`};
+      }
+    }
+  }
+  if (op==="share" && scoped && metric.parts.length===1 && /\b(?:share|percent\w*)\b.*\b(?:total|portfolio|overall|all campaigns|entire)\b.*\b(?:from|goes to|comes from|allocated to|accounted for by)\b/.test(q)) {
+    const numerator=metricValue(metric,rows).value, denominator=metricValue(metric,board.details).value;
+    const names=rows.map(row=>row.name).join(" + ");
+    return {answer:denominator===0 ? "The contribution share is undefined because the portfolio total is zero." :
+      `${names} accounts for ${precisePercent(100*numerator/denominator)} of the portfolio’s ${metric.label} (${metric.format(numerator)} ÷ ${metric.format(denominator)} × 100).`,row:selected};
+  }
+  if (["difference","ratio","share"].includes(op) && rows.length===2) {
+    let [a,b] = list;
+    if (/\bsubtract\b.+\bfrom\b/.test(q)) [a,b]=[b,a];
+    if (op==="share" && /\b(?:percentage|percent|share) of .+\b(?:was|were|is|are) .+\bby\b/.test(q)) [a,b]=[b,a];
+    if (a.value===null || b.value===null) return {answer:`This calculation is undefined because at least one campaign has no ${metric.terms[1]}.`};
+    const lhs = metric.format(a.value), rhs = metric.format(b.value);
+    if (op==="difference") {
+      const signed = /\b(minus|subtract|less than|more than)\b/.test(q);
+      const delta = signed ? a.value-b.value : Math.abs(a.value-b.value);
+      const format = isPercent ? n=>precisePercent(n).replace("%"," percentage points") : metric.format===exactCash ? inr : metric.format;
+      return {answer:`The ${metric.label} difference is ${format(delta)} (${a.row.name}: ${lhs}; ${b.row.name}: ${rhs}).${caveat}`};
+    }
+    const partOfTotal = op==="share" && /\b(combined|total|both|together)\b/.test(q);
+    const denominator = partOfTotal ? a.value+b.value : b.value;
+    if (denominator===0) return {answer:`The ${op} is undefined because ${partOfTotal?"the combined total":b.row.name+"’s denominator"} is zero.`};
+    return {answer:`${a.row.name} is ${op==="share"?precisePercent(100*a.value/denominator):multiple(a.value/denominator)} of ${partOfTotal?"the combined "+metric.label:b.row.name+"’s "+metric.label} (${lhs} ÷ ${partOfTotal?metric.format(denominator):rhs}${op==="share"?" × 100":""}).${caveat}`};
+  }
+  if (op==="difference" && rows.length!==2) return {answer:"Which two campaigns should I subtract? You can also ask for a side-by-side comparison."};
+  if (["ratio","share"].includes(op) && rows.length>2 && scoped && !isQuotient) {
+    return {answer:"Which two campaigns should I divide? You can also ask for each campaign’s figures separately."};
+  }
+  if (op==="compare" || metric.campaignOnly || (rows.length>1 && scoped && !op && !isQuotient && !/\b(?:how much|how many|combined|together|both)\b/.test(q))) {
+    return {answer:`${metric.label[0].toUpperCase()+metric.label.slice(1)} by campaign.\n${list.map(item=>`${item.row.name}: ${explainMetric(metric,item)}.`).join("\n")}${caveat}`,row:selected};
+  }
+  if (op==="share" && selected && metric.parts.length===1 && /\b(?:share|percent\w*)\b.*\b(?:total|portfolio|overall|all campaigns|entire)\b/.test(q)) {
+    const numerator=list[0].value, denominator=metricValue(metric,board.details).value;
+    return {answer:denominator===0 ? "The contribution share is undefined because the portfolio total is zero." :
+      `${selected.name} accounts for ${precisePercent(100*numerator/denominator)} of the portfolio’s ${metric.label} (${metric.format(numerator)} ÷ ${metric.format(denominator)} × 100).`,row:selected};
+  }
+  const result = metricValue(metric,rows);
+  const suffix = selected?.name || (scoped ? rows.map(row=>row.name).join(" + ") : "the workspace");
+  const calculation = op==="sum" && scoped && metric.parts.length===1 && list.length>1 ?
+    ` (${list.map(item=>metric.format(item.value)).join(" + ")})` : "";
+  let answer=`${metric.label[0].toUpperCase()+metric.label.slice(1)} for ${suffix}: ${explainMetric(metric,result)}${calculation}.`;
+  if (key==="progress" || key==="forecastProgress") {
+    const counterpart = metrics[key==="progress"?"forecastProgress":"progress"];
+    const other = metricValue(counterpart,rows);
+    const remaining = key==="progress" && /remaining|left|still need|unfunded/.test(q);
+    if (remaining) answer=`${precisePercent(Math.max(0,100-result.value))} remains unfunded (${inr(Math.max(0,result.parts[1]-result.parts[0]))} still needed for the ${board.mode} target).\n${answer}`;
+    answer += `\n${counterpart.label[0].toUpperCase()+counterpart.label.slice(1)}: ${explainMetric(counterpart,other)}.${result.value===null?"":` The ${board.mode} case is used.`}`;
+  }
+  if (key==="cash") {
+    const totals = metricValue(metrics.paid,rows).value;
+    answer+=` Across ${totals} paid ${totals===1?"deal":"deals"}.`;
+  }
+  if (key==="paid") answer+=` The simulation has ${result.value} paid ${result.value===1?"deal":"deals"} and ${lakhs(metricValue(metrics.cash,rows).value)} received.`;
+  if (key==="unpaid") answer+=" This is the balance on signed agreements.";
+  return {answer:answer+caveat,row:selected};
+}
+
+const assumptionDrivers = {
+  collect:{pattern:/collect(?:ion|ed)?|reali[sz]|payment rate|on.time payment/,label:"on-time collection rate",fraction:true},
+  closeRate:{pattern:/proposal.{0,24}conver|clos(?:e|ing) rate|signing rate|win rate|proposal.to.(?:sign|deal)/,label:"proposal close rate",fraction:true},
+  signal:{pattern:/leading (?:signal|indicator)|response rate|repl(?:y|ies) within 24|first reply|24.hour|timely repl/,label:"leading signal",fraction:true},
+  deal:{pattern:/deal (?:size|value|amount)|average (?:deal|ticket)|ticket size|deal price/,label:"future average deal size"},
+  budget:{pattern:/budget|acquisition allocation/,label:"acquisition budget"}
+};
+
+function parseScenario(q,context,followup) {
+  const hypothetical=/\b(?:what if|if|suppose|assuming|assume|simulate|sensitivity|scenario)\b/.test(q) ||
+    followup && /\b(?:to|by|at)\s+(?:₹|rs\.?\s*)?\d/.test(q) && context.scenarioDriver;
+  if (!hypothetical) return null;
+  const specified=q.split(/\b(?:if|suppose|assuming|assume)\b/).at(-1);
+  const clauses=specified.split(/\band\b(?=\s*[^?;,]{0,70}\d)/);
+  const changes=[];
+  for (const clause of clauses) {
+    const matched=Object.entries(assumptionDrivers).filter(([,spec])=>spec.pattern.test(clause));
+    const fallback=followup && (context.scenarioDriver || (context.topic==="decision"?"signal":null));
+    const driver=matched.length===1 ? matched[0][0] : !matched.length ? fallback : null;
+    const amounts=[...clause.matchAll(/(?<![\w.])(?:₹\s*|(?:rs\.?|inr)\s*)?(-?(?:\d[\d,]*(?:\.\d+)?|\.\d+))\s*(percentage points?|percent points?|pp\b|%|percent\b|crores?\b|cr\b|lakhs?\b|lac[s]?\b|l\b|thousand\b|k\b)?/gi)];
+    const amount=amounts.at(-1);
+    if (!amount) continue;
+    if (!driver) return {error:"What should I change in the scenario: collection rate, proposal conversion, the leading signal, average deal size, or budget?"};
+    const value=Number(amount[1].replaceAll(",",""));
+    const unit=amount[2]||"";
+    const down=/\b(?:decreas\w*|reduc\w*|lower\w*|falls?|drop\w*|declin\w*|cut\w*|less|down|subtract)\b/.test(clause);
+    const up=/\b(?:increas\w*|rais\w*|improv\w*|rises?|grow\w*|boost\w*|higher|more|up|add)\b/.test(clause);
+    const pp=/points?|^pp$/.test(unit);
+    const percent=/%|percent/.test(unit) && !pp;
+    const relative=pp || /\bby\b|(?:more|less|higher|lower)\b/.test(clause) || ((up||down) && !/\b(?:to|at|from)\b/.test(clause));
+    const sign=down || value<0 ? -1 : 1;
+    const spec=assumptionDrivers[driver];
+    const rupees = Math.abs(value) * (/^(?:crore|cr)/.test(unit)?1e7:/^(?:lakh|lac|l$)/.test(unit)?1e5:/^(?:thousand|k$)/.test(unit)?1e3:1);
+    if (!Number.isFinite(value) || pp&&!spec.fraction || spec.fraction&&!pp&&!percent ||
+        !relative && (value<0 || (!spec.fraction&&percent))) {
+      return {error:spec.fraction ? `Use a valid percent for ${spec.label}, or specify a percentage-point change.` :
+        `Set ${spec.label} in rupees, or specify how much to increase or decrease it.`};
+    }
+    changes.push({driver,method:pp?"points":relative&&percent?"relative":relative?"delta":"set",
+      amount:pp||percent?Math.abs(value)/100:rupees,sign});
+  }
+  return changes.length ? {changes} : Object.values(assumptionDrivers).some(spec=>spec.pattern.test(specified)) ?
+    {error:"Give me a scenario value, such as “set collection to 80%” or “cut the budget by ₹5,000.”"} : null;
+}
+
+function scenarioValue(before,change) {
+  if (change.method==="set") return change.amount;
+  if (change.method==="relative") return before*(1+change.sign*change.amount);
+  return before+change.sign*change.amount;
+}
+
+function simulateCampaign(row,mode,changes) {
+  const current = {};
+  const adjusted = {};
+  const inputs={collect:row.plan.collect,closeRate:forecastCloseRate(row.actual,row.plan),
+    signal:row.actual.signal/100,deal:row.plan.deal,budget:row.budget};
+  for (const change of changes) {
+    const {driver} = change;
+    current[driver] ??= inputs[driver];
+    const amount = scenarioValue(adjusted[driver] ?? inputs[driver],change);
+    const max=assumptionDrivers[driver].fraction?1:1e9;
+    if (amount < -1e-10 || amount > max+1e-10) return {error:assumptionDrivers[driver].label};
+    adjusted[driver] = Math.min(max,Math.max(0,amount));
+  }
+  const actual = Object.hasOwn(adjusted,"signal") ? {...row.actual,signal:Math.round(adjusted.signal*1e10)/1e8} : row.actual;
+  return {name:row.name,current,adjusted,actual,decision:decision(row,actual),
+    projection:forecast(row,actual,mode,adjusted),budget:adjusted.budget??row.budget};
+}
+
+function scenarioAnswer(q,parsed,rows,mode) {
+  const simulated=rows.map(row=>simulateCampaign(row,mode,parsed.changes));
+  const invalid=simulated.find(row=>row.error);
+  if (invalid) return {answer:`The ${invalid.error} change puts at least one campaign outside its valid range. Rates must be 0% to 100%, and amounts must be between ₹0 and ₹1,00,00,00,000. Try a smaller change.`};
+  const names = [...new Set(parsed.changes.map(change=>change.driver))];
+  const format = (driver,value)=>assumptionDrivers[driver].fraction?precisePercent(value*100):inr(value);
+  const adjustment=parsed.changes.map(({driver,method,amount,sign})=>{
+    const label=assumptionDrivers[driver].label;
+    if (method==="set") return `${label} set to ${format(driver,amount)}`;
+    const unit=method==="points"?precisePercent(amount*100).replace("%"," percentage points"):
+      method==="relative"?precisePercent(amount*100)+" relative to its starting value":format(driver,amount);
+    return `${label} ${sign>0?"increased":"decreased"} by ${unit}`;
+  }).join(", ");
+  const scope=rows.length===1?rows[0].name:rows.length===PLAN.campaigns.length?"the workspace":rows.map(row=>row.name).join(" + ");
+  const old=sum(rows,"projection"), next=sum(simulated,"projection"), receipts=sum(rows,row=>row.actual.cash);
+  const delta=next-old;
+  const compare=delta===0?"unchanged":`${inr(Math.abs(delta))} ${delta<0?"lower":"higher"}`;
+  const lines=simulated.map((result,index)=>{
+    const from=rows[index];
+    const changes=names.map(driver=>`${format(driver,result.current[driver])} → ${format(driver,result.adjusted[driver])} ${assumptionDrivers[driver].label}`);
+    if (names.includes("signal")) changes.push(`decision ${from.decision} → ${result.decision}`);
+    return `${result.name}: ${changes.join(", ")}.`;
+  });
+  let detail=`Already-collected receipts stay at ${inr(receipts)}. The model applies the collection rate to remaining signed value plus projected new deals.`;
+  if (names.includes("deal")) detail+=" The new ticket size applies only to projected deals.";
+  if (names.includes("closeRate")) detail+=" The scenario substitutes the assumed rate for the blended close rate, with the original signing cap.";
+  if (names.includes("budget")) {
+    const budget=sum(simulated,"budget"), headroom=budget-sum(rows,row=>row.actual.spend);
+    const incremental=sum(rows,row=>row.plan.cash-row.plan.baseline);
+    detail+=` Acquisition budget becomes ${inr(budget)}, with ${headroom<0?inr(-headroom)+" already overspent":inr(headroom)+" left"}. Modeled incremental cash per budget rupee is ${budget?multiple(incremental/budget):"undefined"}. The forecast has no modeled response to budget changes alone.`;
+  }
+  return {answer:`Hypothetical ${mode} forecast for ${scope}: ${exactCash(next)} versus ${inr(old)} now (${compare}).\n${adjustment[0].toUpperCase()+adjustment.slice(1)}.\n${lines.join("\n")}\n\n${detail}`,
+    scenarioDriver:names.length===1?names[0]:undefined};
 }
 
 const training = {
@@ -212,24 +588,67 @@ const formatDate = raw => raw.slice(0,10);
 const stageNames = {prospecting:"Prospecting",contacted:"Contacted",proposal_sent:"Proposal sent",negotiating:"Negotiating",partner_confirmed:"Partner confirmed",lost:"Lost",withdrawn:"Withdrawn"};
 const has = (q,re) => re.test(q);
 
-function brandMatches(q) {
-  const lower = q.toLowerCase();
-  const key = lower.match(/\ba\d{3}\b/g) || [];
-  const items = DATA.sponsor.Brands.filter(b => key.includes(b.brand_id.toLowerCase()) || lower.includes(b.brand_name.toLowerCase()));
-  return items;
+const normalizeEntity = value=>value.toLowerCase().normalize("NFKD").replace(/\p{M}/gu,"").replace(/[^a-z0-9]+/g," ").trim();
+const containsEntity = (text,phrase)=>(" "+text+" ").includes(" "+phrase+" ");
+
+function oneEditApart(a,b) {
+  if (Math.abs(a.length-b.length)>1) return false;
+  if (a.length>b.length) [a,b]=[b,a];
+  let i=0;
+  while (i<a.length && a[i]===b[i]) i++;
+  if(a.length!==b.length) return a.slice(i)===b.slice(i+1);
+  return a.slice(i+1)===b.slice(i+1) ||
+    a[i]===b[i+1] && a[i+1]===b[i] && a.slice(i+2)===b.slice(i+2);
+}
+
+function resolveBrands(q) {
+  const text = normalizeEntity(q.replace(/[’']s\b/gi,""));
+  const brands = DATA.sponsor.Brands;
+  const exact = brands.filter(brand=>containsEntity(text,brand.brand_id.toLowerCase()) || containsEntity(text,normalizeEntity(brand.brand_name)));
+  if(exact.length) return exact;
+  const tokens=text.split(" ");
+  return brands.filter(brand=>{
+    const name = normalizeEntity(brand.brand_name), size = name.split(" ").length;
+    return name.length>=5 && tokens.some((_,i)=>i+size<=tokens.length && oneEditApart(tokens.slice(i,i+size).join(" "),name));
+  });
 }
 
 const aliases = {
-  creator:/creator|sc05/, warm:/warm|alumni|sc02/, inbound:/inbound|triage|interest form|sc04/,
-  revival:/revival|dormant|sc06/, cold:/cold|discovery email|sc01/
+  creator:/\b(?:creator(?: network)?(?: referrals?)?|creater|sc05)\b/,
+  warm:/\b(?:warm(?: partner)?(?: intro(?:duction)?s?)?|alumni|sc02)\b/,
+  inbound:/\b(?:inbound(?: fast lane)?|inboud|inboudn|triage|(?:partner )?interest form|sc04)\b/,
+  revival:/\b(?:revival(?: micro.packages)?|revial|dormant|sc06)\b/,
+  cold:/\b(?:cold(?: outbound)?|discovery email|sc01)\b/
 };
 
-function historicalAnswer(q, date, cid, brandId, dates) {
+function distinctCampaigns(q,board) {
+  const tokens=[...q.matchAll(/\b[a-z]{5,}\b/g)];
+  return board.details.map(row=>{
+    const exact=q.search(aliases[row.id]);
+    const typo=exact<0 && row.id.length>=5 ? tokens.find(token=>oneEditApart(token[0],row.id)) : undefined;
+    return {row,at:typo?.index??exact};
+  }).filter(({at})=>at>=0)
+    .sort((a,b)=>a.at-b.at).map(({row})=>row);
+}
+
+function namedBrandInQuestion(question) {
+  const identifier=question.match(/\bA\d{2,5}\b/i)?.[0];
+  if(identifier) return identifier;
+  const quoted=question.match(/\b(?:brands?|sponsors?)\s+(?:named\s+)?["“‘']([^"”’']+)["”’']/i)?.[1];
+  if(quoted) return quoted;
+  const named=question.match(/\b(?:unknown\s+brand|(?:brand|sponsor)\s+named|brand(?!s\b))\s+([a-z][\w-]*(?:\s+(?!(?:had|has|have|was|is|did|historically|before|as|on|by|in|to|from|with|do)\b)[a-z][\w-]*){0,3})\b/i)?.[1];
+  if(named && !/^(?:records?|names?|qualification|list|counts?|conversion|performance|totals?|history|status|outreach|goals?|selection|partners?|data)\b/i.test(named)) return named;
+  const subject=question.match(/\b(?:did|does|was|for)\s+([A-Z][\w-]+(?:\s+[A-Z][\w-]+){0,3})\b(?=\s+(?:have|sign|raise|collect|confirm|historically|as of|on|pending)|[?.!]|$)/)?.[1];
+  return subject && !/^(?:March|April|February|January|CampusFest|Sponsor Desk|Friday)$/i.test(subject)?subject:null;
+}
+
+function historicalAnswer(q, date, cid, brandId, dates, opportunity, topic) {
   const s = getHistorySnapshot(date,{campaign:cid,brand:brandId});
   const selected = [s.brand,s.campaign].filter(Boolean).join(" / ") || "All sponsors";
   const label = `Sponsorship workbook · ${date} EOD IST`;
   const refs = [{label,url:DATA.links.sponsorship}];
-  if (has(q,/\b(roi|cac|budget|spend|cost|receipt|deposited|cash (?:(?:was|has been|had been) )?(collected|received|paid)|paid in|payment date|payments were|payment received|bank|actual receipts)\b/)) {
+  if (!DATA.sponsor.Brands.length) return {answer:"No brand records are available in the historical workbook.",refs};
+  if (has(q,/\b(roi|cac|budget|spend|cost|receipt|deposited|cash (?:(?:was|has been|had been) )?(collected|received|paid)|cash realiz\w*|unpaid|paid in|paid deals?|acquisition spend|payment\w*|bank|actual receipts)\b/)) {
     return {answer:`The historical workbook records ${lakhs(s.signedValue)} in confirmed cash agreements for ${selected} by ${date}. It provides no bank receipts, cash collection totals, payment dates, or campaign spend. Collection and spend shown in the workspace are simulated.`,refs};
   }
   if (dates.length >= 2) {
@@ -242,18 +661,31 @@ function historicalAnswer(q, date, cid, brandId, dates) {
     return {answer:links.length?`${links.join("\n")}\nThe activation links establish association. The sheets lack a control group or baseline for estimating sponsor-caused incremental visits.`:`No confirmed linked activation matches this scope by ${date}. The attendee workbook counts verified admissions on festival dates.`,
       refs:[...refs,{label:"Attendee workbook · verified external check-ins",url:DATA.links.attendee}]};
   }
-  if (brandId || has(q,/\bo\d{3}\b/)) {
-    const target = q.match(/\bo\d{3}\b/i)?.[0].toUpperCase();
+  if (opportunity || (brandId && topic==="status")) {
+    const target = opportunity;
     const deals = s.deals.filter(d=>!target||d.id===target);
     const qualification = s.qualification[0];
     if (!deals.length && !qualification) return {answer:`No eligible source record was available for ${target || selected} at ${date}.`,refs};
     const lines = deals.slice(0,5).map(d=>`${d.id} ${d.brand}: ${stageNames[d.stage]} (${d.support==="cash"?"cash":"in-kind"}), ${inr(d.value)} confirmed, ${inr(d.proposed)} proposed. Updated ${formatDate(d.asOf)}.`);
     return {answer:`${selected} · ${date}. ${qualification ? `Qualification: ${qualification.status}. ${qualification.reason} `:""}${lines.length?"\n"+lines.join("\n"):"No opportunity state yet."}`,refs};
   }
-  if (has(q,/which|rank|top|best|highest|most|strongest|largest/) && !cid && !brandId) {
+  if (has(q,/\b(?:list|show|which|who)\b/) && has(q,/\b(?:lost|withdrawn)\b/) && !has(q,/how many|count|number of/)) {
+    const stage=has(q,/withdrawn/)?"withdrawn":"lost";
+    const deals=s.deals.filter(row=>row.stage===stage);
+    return {answer:deals.length?`By ${date}, ${deals.length} opportunities were ${stage} for ${selected}.\n${deals.slice(0,8).map(row=>row.id+" "+row.brand).join("\n")}`:
+      `No opportunities in this scope were ${stage} by ${date}.`,refs};
+  }
+  if (has(q,/\b(?:campaigns?|channels?|sources?)\b/) && has(q,/rank|top|best|highest|most|strongest|largest|lowest|least|fewest/) && !cid && !brandId) {
+    const ascending=has(q,/lowest|least|fewest|smallest/);
     const metrics = has(q,/outreach|attempt|sent/) ? "outreach" : has(q,/qualif/) ? "qualified" : has(q,/reply|replies/) ? "replyBrands" : has(q,/convers|engag/) ? "conversations" : "signedValue";
-    const rows = DATA.sponsor["Sponsor campaigns"].map(c=>getHistorySnapshot(date,{campaign:c.sponsor_campaign_id})).sort((a,b)=>b[metrics]-a[metrics]);
-    return {answer:`Top historical campaigns by ${{outreach:"outreach attempts",qualified:"latest qualified brands",replyBrands:"replying brands",conversations:"engaged brands",signedValue:"confirmed cash value"}[metrics]} at ${date}.\n${rows.slice(0,3).map(r=>`${r.campaign}: ${metrics==="signedValue"?lakhs(r[metrics]):r[metrics]}`).join("\n")}\nCampaign association is observational. Brands may appear in more than one campaign.`,refs};
+    const rows = DATA.sponsor["Sponsor campaigns"].map(c=>getHistorySnapshot(date,{campaign:c.sponsor_campaign_id})).sort((a,b)=>ascending?a[metrics]-b[metrics]:b[metrics]-a[metrics]);
+    const listed=has(q,/\bwhich|lowest|least|fewest\b/)?rows.filter(row=>row[metrics]===rows[0][metrics]):rows.slice(0,3);
+    return {answer:`Historical campaigns by ${{outreach:"outreach attempts",qualified:"latest qualified brands",replyBrands:"replying brands",conversations:"engaged brands",signedValue:"confirmed cash value"}[metrics]} at ${date} (${ascending?"lowest":"highest"} first).\n${listed.map(r=>`${r.campaign}: ${metrics==="signedValue"?lakhs(r[metrics]):r[metrics]}`).join("\n")}\nCampaign association is observational. Brands may appear in more than one campaign.`,refs};
+  }
+  if (conversionMetric(q)==="proposalConversion") {
+    const percentage=rate(s.signed,s.proposals);
+    return {answer:percentage===null ? "Proposal-to-deal conversion is undefined because there were no historical proposals in this scope." :
+      `${selected} · proposal-to-deal conversion: ${precisePercent(percentage)} (${s.signed} confirmed opportunities ÷ ${s.proposals} opportunities that reached proposal × 100).`,refs};
   }
   if (has(q,/rate|percent|conversion|ratio/)) {
     return {answer:`${selected} at ${date}. Positive-reply share is ${pct(rate(s.positive,s.replies))} (${s.positive}/${s.replies} reply events). ${pct(rate(s.cashDeals,s.signed))} of confirmed opportunities are cash (${s.cashDeals}/${s.signed}). ${s.proposals ? `${pct(rate(s.signed,s.proposals))} of opportunities that ever reached proposal are currently confirmed.`:"No proposal-stage opportunity is available for a deal conversion."}`,refs};
@@ -269,154 +701,256 @@ function historicalAnswer(q, date, cid, brandId, dates) {
       [/contacted/,s.contacted,"distinct brands received outreach"],
       [/conversations|engaged/,s.conversations,"distinct brands had a recorded conversation"],
       [/propos/,s.proposals,"opportunities reached the proposal stage"],
+      [/lost/,s.deals.filter(deal=>deal.stage==="lost").length,"opportunities were recorded as lost"],
+      [/in.kind/,s.signed-s.cashDeals,"in-kind partnerships were confirmed"],
       [/cash (deals|partners)/,s.cashDeals,"cash deals were confirmed"],
       [/signed|confirmed|partner/,s.signed,"partnerships were confirmed"],
       [/prospects|brands/,s.brands,"brand records were in scope"]
     ];
     const measure=measures.find(([test])=>test.test(q));
-    if(measure)return {answer:`By ${date}, ${measure[1]} ${measure[2]}${s.campaign ? ` for ${s.campaign}` : ""}.`,refs};
+    if(measure)return {answer:`By ${date}, ${measure[1]} ${measure[2]}${selected==="All sponsors" ? "" : ` for ${selected}`}.`,refs};
+  }
+  if (has(q,/confirmed cash|cash commitments?|signed (cash )?(value|amount)|how much.*(?:sign|confirm|pledge)|in.kind (value|amount)/)) {
+    const isInKind=has(q,/in.kind/);
+    return {answer:`${selected} had ${exactCash(isInKind?s.inKind:s.signedValue)} in confirmed ${isInKind?"in-kind value":"cash commitments"} by ${date}. The workbook has no bank receipts.`,refs};
   }
   if (has(q,/target|goal|vs plan/)) return {answer:s.goals ? `${s.goals.target_version} is in effect. ${s.qualified} qualified brands vs a goal of ${s.goals.qualified_brands_goal}. ${s.signed} confirmed partnerships vs a goal of ${s.goals.confirmed_partnerships_goal}. These goals cover the overall source program.`:"No historical target was effective on that date.",refs};
   return {answer:`${selected} through ${date}. ${s.brands} brand records, ${s.outreach} distinct outreach attempts to ${s.contacted} brands, ${s.replyBrands} replying brands, ${s.positiveBrands} positive-reply brands, ${s.conversations} brands with engagement, and ${s.meetings} held meetings.\n${s.qualified} brands had latest status qualified. ${s.proposals} opportunities reached a proposal stage and ${s.signed} were currently confirmed. ${s.cashDeals} cash deals totalled ${lakhs(s.signedValue)} in confirmed value. In-kind value was ${lakhs(s.inKind)}.`,refs};
 }
 
 function answerQuestion(input,state) {
-  const question = input.q.trim();
-  const q = question.toLowerCase().replace(/[’‘]/g,"'").replace(/\s+/g," ");
-  const smallTalk = conversationalAnswer(q);
-  if(smallTalk) return {answer:smallTalk,refs:[]};
-  if(has(q,/\b(data sources?|where (does|did|do) (your |the )?(data|figures|numbers) come from)\b/)) {
+  const questions=input.q.trim().split(/\?\s+(?=[a-z])|;\s*|,\s*(?=and (?:what|how|which|why)\b)|\s+and (?=(?:what|how|which|why)\b)/i).filter(Boolean);
+  let context=input.context || {};
+  const results=questions.map(q=>{
+    const result=answerTurn({...input,q,context},state);
+    context=result.context || context;
+    return result;
+  });
+  if (results.length===1) return results[0];
+  const refs=[...new Map(results.flatMap(result=>result.refs).map(ref=>[ref.label,ref])).values()];
+  return {answer:results.map(result=>result.answer).join("\n\n"),refs,context,draft:results.find(result=>result.draft)?.draft};
+}
+
+function answerTurn(input,state) {
+  const question=input.q.trim();
+  const q=question.toLowerCase().replace(/[’‘]/g,"'").replace(/\s+/g," ");
+  const context=input.context || {};
+  const smallTalk=conversationalAnswer(q);
+  if (smallTalk) return {answer:smallTalk,refs:[]};
+  if (/^(?:yes[,. ]+)?(?:confirm|save it|approve it)\s*[?.!]*$/.test(q)) {
+    return {answer:context.topic==="draft" ? "Open Review task draft, then select Confirm and save task to add it to the workspace." :
+      "There is no task awaiting confirmation in this conversation. Ask me to draft one first.",refs:[]};
+  }
+  if (/\b(data sources?|where (does|did|do) (your |the )?(data|figures|numbers) come from)\b/.test(q)) {
     return {answer:"The assignment supplied two workbooks. The sponsorship workbook tracks outreach and commitments, and the attendee workbook records festival check-ins. The workspace uses a simulation for payments, budgets and forecasts.",refs:[
       {label:"Sponsorship workbook",url:DATA.links.sponsorship},
       {label:"Attendee workbook",url:DATA.links.attendee}
     ]};
   }
-  const mode = has(q,/\bstretch (case|scenario|target|goal)\b/) ? "stretch" :
-    has(q,/\bbase (case|scenario|target|goal)\b/) ? "base" : input.mode === "stretch" ? "stretch" : "base";
-  const dates = parseDates(question);
-  const board = overview(state,mode);
-  const brand = brandMatches(question)[0];
-  const namedHistorical = DATA.sponsor["Sponsor campaigns"].find(c=>q.includes(c.campaign_name.toLowerCase()) || q.includes(c.sponsor_campaign_id.toLowerCase()));
-  const requested = board.details.filter(row=>aliases[row.id].test(q));
-  const context = input.context || {};
-  const explicitLive = has(q,/workspace|current (campaign|workspace|simulation)|simulation|simulated|live (desk|plan|dashboard)|today's plan/);
-  const followup = has(q,/^(and|what about|what if|how about|then|why|how so|tell me more)\b|\b(it|that campaign|same campaign|same brand|same date|that date|that number|those deals)\b/);
-  const taskDraft = has(q,/\b(create|draft|add|assign|turn)\b/) && has(q,/\b(tasks?|action item|follow.?up)\b/);
-  const domain = brand || namedHistorical || requested.length>0 || has(q,/on track|where are we behind/) || has(q,/\b(sponsor\w*|campaign\w*|channel\w*|cash|payments?|receipts?|paid|collect\w*|raise\w*|forecasts?|projected|budget|unspent|spend|spent|costs?|roi|prospects?|proposals?|deals?|conversion\w*|funnel|bottleneck|opportunity|outreach|qualified|activations?|brands?|visitors?|check.?ins?|attendee\w*|tasks?|action items?|follow.?ups?|dataset|histor\w*|workbook|dashboard|funded|targets?|gap|shortfall|pipeline|partner\w*|o\d{3})\b/);
-  const scopedFollowup=followup && !!context.scope && (domain || dates.length>0 || has(q,/^(why|how so|tell me more|what about (it|that))\s*[?.!]*$/));
-  if (has(q,/\b(weather|rain|hotels?|cricket score|phone numbers?|mobile numbers?|email address|personal emails?|personal address|bank accounts?|stock price|insurance|who is the ceo|who founded|instagram followers|profit margin)\b/)) {
+  if (/\b(next (?:year|season|edition|quarter)|future festival)\b/.test(q) || /\b20(?:2[6-9]|[3-9]\d)\b(?!-\d{2}-\d{2})/.test(q) && /\bcampaigns?|targets?|goals?|forecast|festival|sponsors?\b/.test(q) && !/\b(?:task|due)\b/.test(q)) {
+    return {answer:"The workbook and simulation cover the 2025 festival. They contain no campaign goals or budgets for a future edition.",refs:[]};
+  }
+  if (/\b(weather|rain|hotels?|cricket score|phone numbers?|mobile numbers?|email address|personal emails?|personal address|bank accounts?|stock price|insurance|who is the ceo|who founded|instagram followers|profit margin|market size|market share|inflation|competitor revenue|industry benchmark|tax rate)\b/.test(q)) {
     return {answer:"This workspace has insufficient evidence to answer that. I can look up campaign performance and the sponsor workbook.",refs:[]};
   }
-  if(!domain && !scopedFollowup && !explicitLive) return {answer:scopeText,refs:[]};
-  if (has(q,/before (the )?(festival|fest|event)|pre.fest/) && !explicitLive && !dates.length) dates.push(historyDate);
-  const explicitHistory = has(q,/histor|original|dataset|workbook|source sheet|\bo\d{3}\b|activat|check.?in|attendee/) || brand || namedHistorical;
-  const historical = !explicitLive && !taskDraft && (explicitHistory || input.scope === "history" || dates.length>0 || (scopedFollowup && context.scope === "history"));
-  const date = dates[0] || input.date || (scopedFollowup && context.date) || historyDate;
-  const historyCid = namedHistorical?.sponsor_campaign_id || requested[0]?.source || (scopedFollowup && context.scope==="history" ? context.campaign : undefined);
-  const brandId = brand?.brand_id || (scopedFollowup && context.scope==="history" && !namedHistorical ? context.brand : undefined);
-  const cls = classify(q);
+
+  const dates=parseDates(question);
+  const followup=!!context.scope && /^(and|what about|what if|what happens if|how about|then|why|how so|tell me more|how can we improve|how do we improve)\b|\b(it|that campaign|same campaign|same brand|same date|that date|that number|those deals|for this)\b/.test(q);
+  const explicitLive=/\b(?:workspace|simulation|simulated|live (?:desk|plan|dashboard)|current (?:campaigns?|figures|dashboard|data)|today's plan)\b/.test(q);
+  const explicitMode=q.match(/\b(base|stretch)(?:\s+(?:case|scenario|target|goal|plan|forecast))?\b/)?.[1];
+  const mode=explicitMode || (followup && !explicitLive && context.scope==="live" ? context.mode : null) || (input.mode==="stretch"?"stretch":"base");
+  const board=overview(state,mode);
+  const requested=distinctCampaigns(q,board);
+  const namedHistorical=DATA.sponsor["Sponsor campaigns"].filter(c=>containsEntity(normalizeEntity(q),normalizeEntity(c.campaign_name)) || containsEntity(normalizeEntity(q),c.sponsor_campaign_id.toLowerCase()));
+  const opportunity=q.match(/\bo\d{2,5}\b/i)?.[0].toUpperCase();
+  const requestedId=q.match(/\bsc\d{2,5}\b/i)?.[0].toUpperCase();
+  const historyHint=/\bhistor\w*|\boriginal\b|\bworkbook\b|\bdataset\b|source sheet|attend|check.in|activation|as of|records before/.test(q);
+  const draft=/\b(create|draft|add|assign|turn)\b/.test(q) && /\b(tasks?|action items?|follow.?up)\b/.test(q);
+  const scenario=parseScenario(q,context,followup);
+  const brandMatch=resolveBrands(question);
+  const namedBrand=namedBrandInQuestion(question);
+  const evidence=[{label:"Sponsorship workbook",url:DATA.links.sponsorship}];
+  if (/\b(?:unknown campaign|campaign named|channel named)\b/.test(q) && !requested.length&&!namedHistorical.length) {
+    return {answer:"No matching campaign was found. Try its name or the campaign ID shown in Sources.",refs:evidence};
+  }
+  if (requestedId && !namedHistorical.some(c=>c.sponsor_campaign_id===requestedId)) {
+    return {answer:`No campaign matches ${requestedId}. Use a campaign name or a campaign ID listed in the Sources tab.`,refs:[]};
+  }
+  if (!explicitLive && !draft && !scenario && (brandMatch.length || namedBrand || opportunity)) {
+    if (brandMatch.length>1) return {answer:`Which brand do you mean? I found ${brandMatch.slice(0,5).map(brand=>brand.brand_name+" ("+brand.brand_id+")").join(", ")}.`,refs:evidence};
+    if (namedBrand && !brandMatch.length && (historyHint || dates.length || input.scope==="history" || /\b(?:brand|sponsor\s+named)\b/.test(q)) && !requested.length) {
+      return {answer:`No matching brand was found for “${namedBrand}” in the sponsorship workbook. Try the exact brand name or its A-number.`,refs:evidence};
+    }
+  }
+  const historical=!explicitLive && !draft && !scenario && (historyHint || dates.length || brandMatch.length || opportunity || namedHistorical.some(c=>!requested.some(row=>row.source===c.sponsor_campaign_id)) ||
+    (followup && context.scope==="history") || input.scope==="history");
   if (historical) {
-    if (!/^2025-\d\d-\d\d$/.test(date) || [date,...dates].some(d=>d<"2025-01-15"||d>"2025-04-20"||!Number.isFinite(Date.parse(d))||new Date(d).toISOString().slice(0,10)!==d)) {
-      return {answer:"The workbook covers January 15 through April 20, 2025 in Asia/Kolkata. Select a date in that range.",refs:[]};
+    const date=dates[0] || (followup && context.scope==="history" ? context.date : null) || input.date || historyDate;
+    if ([date,...dates].some(d=>d<"2025-01-15"||d>"2025-04-20"||!validIsoDate(d))) {
+      return {answer:"The workbook covers January 15 through April 20, 2025 in Asia/Kolkata. Select a date in that range.",refs:evidence};
     }
-    return {...historicalAnswer(q,date,historyCid,brandId,dates),context:{scope:"history",date,campaign:historyCid,brand:brandId}};
-  }
-  let selected = requested[0] || (scopedFollowup ? board.details.find(r=>r.id===context.campaign) : undefined);
-  const refs = [{label:operatingSource}];
-  const ctx = (row,topic) => ({scope:"live",campaign:row?.id,mode,topic});
-  const weakest = [...board.details].sort((a,b)=>b.gap-a.gap)[0];
-  if (taskDraft) {
-    selected ||= context.scope === "history" ? board.details.find(r=>r.source===context.campaign) : null;
-    selected ||= weakest;
-    const target = selected.decision === "Scale" ? `Review and scale ${selected.short}` : `Review ${selected.short.toLowerCase()} and fix the next step`;
-    const due = q.match(/\b20\d\d-\d\d-\d\d\b/)?.[0] || "2025-03-29";
-    return {answer:`I drafted a task for ${selected.name}. Its latest signal is ${pct(selected.actual.signal)} across ${selected.actual.sample} records. Suggested action: ${selected.next} Confirm below to save it.`,refs,
-      draft:{title:target,campaign:selected.id,owner:selected.owner,due,status:"To do",note:selected.next},context:ctx(selected)};
-  }
-  if(selected && has(q,/who (owns|is responsible for|runs|leads)|campaign owner/)) {
-    return {answer:`${selected.owner} owns ${selected.name}.`,refs,context:ctx(selected,"owner")};
-  }
-  if(has(q,/who (owns|is responsible for|runs|leads) (the|this|that) campaign|^(who is the )?campaign owner/)) {
-    return {answer:"Which campaign do you mean? Try asking, “Who owns Inbound fast lane?”",refs:[]};
-  }
-  if (has(q,/\b(tasks?|action items?|follow.?ups?)\b|who is doing what/) && !has(q,/recommend|prioriti|suggest/)) {
-    const list = state.tasks.filter(t=>(!selected||t.campaign===selected.id)&&(!has(q,/open|pending|overdue/)||t.status!=="Done")&&(!has(q,/overdue/)||t.due<PLAN.today));
-    return {answer:list.length ? list.slice(0,6).map(t=>`${t.title} — ${t.owner}, due ${t.due}, ${t.status}.`).join("\n") : "There are no saved tasks matching that scope.",refs,context:ctx(selected)};
-  }
-  if (!selected && has(q,/most|highest|largest|top|leading|which.*most/) && has(q,/cash|collected|raised|money|payment/)&&!has(q,/gap|short|behind|risk/)) {
-    const byForecast=has(q,/forecast|projected|expected/);
-    const ranked=[...board.details].sort((a,b)=>byForecast?b.projection-a.projection:b.actual.cash-a.actual.cash);
-    const lead=ranked[0];
-    const amount=byForecast?lead.projection:lead.actual.cash;
-    if(!amount) return {answer:"No campaign has cash in that metric yet.",refs,context:ctx()};
-    return {answer:`${lead.name} leads with ${lakhs(amount)} in ${byForecast?"projected cash":"simulated receipts"}. The next closest is ${ranked[1].name} at ${lakhs(byForecast?ranked[1].projection:ranked[1].actual.cash)}.`,refs,context:ctx(lead,"cash")};
-  }
-  if (has(q,/how (is|did|do|are).*(calculate|work out)|explain (the )?(cash )?forecast|where (does|did) (that|this|the) (forecast|number) come from/) &&
-      (has(q,/forecast|project/) || (scopedFollowup&&context.topic==="cash"))) {
-    return {answer:"The forecast starts with the simulated receipts already saved. It adds expected on-time payments on signed balances and on deals the team still expects to sign. Proposal pace, close rate and the campaign’s decision signal affect the estimate.",refs,context:ctx(selected,"cash")};
-  }
-  if (requested.length > 1 || has(q,/compare| versus | vs /)) {
-    const rows = requested.length > 1 ? requested : selected ? [selected,...board.details.filter(r=>r.id!==selected.id).slice(0,2)] : board.details;
-    return {answer:rows.map(r=>`${r.name}: ${lakhs(r.actual.cash)} collected, ${lakhs(r.projection)} projected vs ${lakhs(r.plan.cash)} target, ${pct(rate(r.actual.signed,r.actual.proposals))} proposal-to-sign, ${r.decision.toLowerCase()}.`).join("\n"),refs,context:ctx(rows[0])};
-  }
-  if (has(q,/what if|suppose|scenario|sensitivity/) && q.match(/(\d+(?:\.\d+)?)\s*%/) && has(q,/collect|realiz|payment/)) {
-    const ratio = Number(q.match(/(\d+(?:\.\d+)?)\s*%/)[1]) / 100;
-    if (ratio > 1) return {answer:"Use an on-time collection assumption between 0% and 100%.",refs,context:ctx(selected)};
-    const rows = selected ? [selected] : board.details;
-    const estimated = sum(rows,r=>r.actual.cash+(r.plan.collect>0?(r.projection-r.actual.cash)/r.plan.collect:0)*ratio);
-    return {answer:`At ${pct(ratio*100)} collection on remaining signed and projected value, ${selected?.name || "the workspace"} projects ${lakhs(estimated)}. Current forecast is ${lakhs(sum(rows,"projection"))}. Payments already logged are held constant. This is a scenario estimate.`,refs,context:ctx(selected)};
-  }
-  if (cls === "budget" || has(q,/budget|spend|spent|unspent|\broi\b|\bcost\b/)) {
-    const rows = selected ? [selected] : board.details;
-    const budget = sum(rows,"budget"), spent = sum(rows,r=>r.actual.spend), cash = sum(rows,r=>r.actual.cash);
-    return {answer:`${selected?.name || "Workspace"} has spent ${inr(spent)} of ${inr(budget)} (${pct(rate(spent,budget))}). Remaining budget is ${inr(budget-spent)}. Simulated cash collected per rupee spent: ${spent?(cash/spent).toFixed(2)+"×":"unavailable at zero spend"}. This ratio excludes festival operating costs.`,refs,context:ctx(selected)};
-  }
-  if (has(q,/recommend|prioriti|\bscale\b|\bstop\b|weakest|\bbest\b|underperform|(?:biggest|largest|worst) (?:\w+ )?gap|what should|behind|shortfall|risk|bottleneck/) ||
-      cls === "rank" || (scopedFollowup && context.topic==="decision" && has(q,/^why|^how so|^tell me more/))) {
-    const needsAction = has(q,/weakest|underperform|gap|behind|shortfall|risk|bottleneck/);
-    const decisionAsked = has(q,/\bstop\b|pause/) ? "Stop" : has(q,/\bscale\b|double down/) ? "Scale" : has(q,/\bchange\b|revise/) ? "Change" : null;
-    const byPriority = [...board.details].sort((a,b)=>b.plan.priority-a.plan.priority);
-    const match = decisionAsked && byPriority.find(r=>r.decision===decisionAsked);
-    if (!selected && decisionAsked && !match && !needsAction) return {answer:`No campaign currently meets the ${decisionAsked.toLowerCase()} threshold. Check the campaign signals and their observation counts.`,refs,context:ctx()};
-    const top = selected || (needsAction ? weakest : match || byPriority[0]);
-    const a = top.actual;
-    if (scopedFollowup && context.topic==="decision" && has(q,/^why[?.! ]*$|^how so|^tell me more/)) {
-      const explanation = a.sample < top.min ? `That’s below the ${top.min} observations needed for a decision.` :
-        `That puts it in the ${top.decision.toLowerCase()} range. The scale threshold is ${top.scale}% and the stop threshold is below ${top.change}%.`;
-      return {answer:`${top.name} recorded ${pct(a.signal)} for “${top.metric}” across ${a.sample} observations. ${explanation}\n\n${top.next}`,refs,context:ctx(top,"decision")};
+    const cid=namedHistorical[0]?.sponsor_campaign_id || requested[0]?.source || (followup && context.scope==="history"?context.campaign:undefined) || input.campaign;
+    const brandId=brandMatch[0]?.brand_id || (followup && context.scope==="history" && !requested.length && !namedHistorical.length?context.brand:undefined) || (!requested.length && !namedHistorical.length && !opportunity?input.brand:undefined);
+    const dealId=opportunity || (followup && !brandMatch.length && !requested.length && !namedHistorical.length ? context.opportunity : undefined);
+    if (dealId && !DATA.sponsor["Partner opportunities"].some(row=>row.opportunity_id===dealId)) {
+      return {answer:`No matching opportunity was found for ${dealId} in the sponsorship workbook.`,refs:evidence};
     }
-    const verdict = a.sample < top.min ? `I’d wait for at least ${top.min} observations before deciding.` :
-      `I’d ${top.decision.toLowerCase()} this campaign.`;
-    const leading = needsAction && top.gap ? `${top.name} is ${lakhs(top.gap)} short of its cash target.` :
-      `${top.name} is forecast to collect ${lakhs(top.projection)} against a target of ${lakhs(top.plan.cash)}.`;
-    return {answer:`${leading} ${verdict}\n\n${top.metric} stands at ${pct(a.signal)} across ${a.sample} observations. The rule is to scale at ${top.scale}% or above, change from ${top.change}% to below ${top.scale}%, and stop below ${top.change}%.\n\n${top.next}`,refs,context:ctx(top,"decision")};
+    if (namedHistorical.length>1 || requested.length>1) {
+      const ids=[...new Set([...namedHistorical.map(c=>c.sponsor_campaign_id),...requested.map(row=>row.source)])];
+      const answers=ids.map(id=>historicalAnswer(q,date,id,brandId,dates,dealId,"comparison"));
+      return {answer:answers.map(result=>result.answer).join("\n\n"),refs:answers[0].refs,context:{scope:"history",date}};
+    }
+    const topic=/status|qualif|what happened|deal stage/.test(q) && !/how many|count|number of|rate/.test(q) ? "status" :
+      followup && !requestedMetric(q) ? context.topic || "status" : brandId && !/how (many|much)|value|count|number|commit|deals|rate|ratio|lost/.test(q)?"status":"summary";
+    return {...historicalAnswer(q,date,cid,brandId,dates,dealId,topic),context:{scope:"history",date,campaign:cid,brand:brandId,opportunity:dealId,topic}};
   }
-  if (cls === "funnel" || has(q,/proposal|prospect|conversion|funnel|signed/)) {
-    const a = selected?.actual || board.totals;
-    const counts = [a.prospects,a.conversations,a.proposals,a.signed,a.paid];
-    const transitions = counts.slice(1).map((n,i)=>({name:`${stageLabels[i]} to ${stageLabels[i+1]}`,rate:rate(n,counts[i])})).filter(x=>x.rate!==null);
-    const low = transitions.sort((a,b)=>a.rate-b.rate)[0];
+  return liveAnswer({q,dates,mode,board,context,followup,requested,draft,scenario,explicitLive},state);
+}
+
+function validIsoDate(value) {
+  return typeof value==="string" && /^20\d\d-\d\d-\d\d$/.test(value) && Number.isFinite(Date.parse(value)) &&
+    new Date(value).toISOString().slice(0,10)===value;
+}
+
+function liveAnswer(query,state) {
+  const {q,dates,mode,board,context,followup,requested,draft,scenario,explicitLive}=query;
+  const carried=followup && !explicitLive && context.scope==="live" ? board.details.find(row=>row.id===context.campaign):undefined;
+  const selected=requested[0] || carried;
+  const rows=requested.length?requested:selected?[selected]:board.details;
+  const refs=[{label:operatingSource}];
+  const ctx=(row,topic,extra={})=>({scope:"live",campaign:row?.id,mode,topic,...extra});
+  const weakest=[...board.details].sort((a,b)=>b.gap-a.gap)[0];
+  if (/\b(?:when|what date|which date).{0,28}(?:pay|settle)|\b(?:pay|settle).{0,28}(?:when|what date|which date)|\b(?:bank statement|invoice records?|receipt numbers?|transaction ids?|actual payment date|profit margin|net profit|profitability|refunds?|audited revenue)\b/.test(q) && !draft) {
+    return {answer:"The workspace has no invoice-level payment dates, bank records, or full festival costs. It can report simulated cash totals and planned collection by 11 April.",refs};
+  }
+  if (draft) {
+    if (requested.length>1) return {answer:"Which one of these campaigns should the task belong to?",refs:[]};
+    const target=selected || board.details.find(row=>context.scope==="history"&&row.source===context.campaign) || weakest;
+    const due=dates[0] || new Date(Date.parse(PLAN.today)+2*86_400_000).toISOString().slice(0,10);
+    if (!validIsoDate(due)) return {answer:"Choose a valid due date for the task, such as 2025-03-29.",refs:[]};
+    const a=target.actual;
+    const objective=`Goal: ${target.metric} at or above ${target.scale}% after at least ${target.min} observations.`;
+    const title=target.next.replace(/\.$/,"").slice(0,110);
+    const note=`${target.next} ${objective} Latest simulation: ${pct(a.signal)} across ${a.sample} observations; ${inr(target.gap)} forecast shortfall.`;
+    return {answer:`I drafted a task for ${target.owner} on ${target.name}, due ${due}. ${target.next} ${objective} Latest signal: ${pct(a.signal)} across ${a.sample} observations. Confirm below to save it.`,
+      refs,draft:{title,campaign:target.id,owner:target.owner,due,status:"To do",note},context:ctx(target,"draft")};
+  }
+  if (scenario?.error) return {answer:scenario.error,refs:[]};
+  if (scenario) {
+    const both=/\bbase\b/.test(q)&&/\bstretch\b/.test(q);
+    if (both) {
+      const cases=["base","stretch"].map(caseMode=>{
+        const caseRows=overview(state,caseMode).details.filter(row=>rows.some(selectedRow=>selectedRow.id===row.id));
+        return scenarioAnswer(q,scenario,caseRows,caseMode).answer;
+      });
+      return {answer:cases.join("\n\n"),refs,context:ctx(selected,"scenario",{scenarioDriver:scenario.changes[0]?.driver})};
+    }
+    const {answer,scenarioDriver}=scenarioAnswer(q,scenario,rows,mode);
+    return {answer,refs,context:ctx(selected,scenarioDriver==="signal"?"decision":"scenario",{scenarioDriver})};
+  }
+
+  if (/\b(?:what|show|list|which|any|find|how many|who)\b/.test(q) && /\b(tasks?|action items?|follow.?ups?|doing what)\b/.test(q) && !/\b(recommend|prioriti\w*|suggest)\b/.test(q)) {
+    const knownOwners=[...new Set(state.tasks.map(task=>task.owner))];
+    const owner=knownOwners.find(name=>containsEntity(normalizeEntity(q),normalizeEntity(name)));
+    const list=state.tasks.filter(task=>(!selected||rows.some(row=>row.id===task.campaign)) && (!owner||task.owner===owner) &&
+      (!/open|pending|overdue/.test(q)||task.status!=="Done") && (!/overdue/.test(q)||task.due<PLAN.today) &&
+      (!/completed|done/.test(q)||task.status==="Done"));
+    return {answer:list.length ? list.slice(-10).map(task=>`${task.title} — ${task.owner}, due ${task.due}, ${task.status}. ${task.note}`).join("\n") : "There are no saved tasks matching that scope.",refs,context:ctx(selected,"tasks")};
+  }
+  if (/\bwho (?:owns|is responsible for|runs|leads)\b|\bcampaign owner\b/.test(q)) {
+    return {answer:selected?rows.map(row=>`${row.owner} owns ${row.name}.`).join("\n"):"Which campaign do you mean? Try asking, “Who owns Inbound fast lane?”",refs,context:ctx(selected,"owner")};
+  }
+  if (/\broi\b|return on investment/.test(q) && !/rupee|incremental/.test(q)) {
+    const result=calculateMetric(q,"cashEfficiency",rows,board);
+    return {...result,refs,context:ctx(selected,"metric",{metric:"cashEfficiency"})};
+  }
+  if (/\b(?:how (?:is|did|do|are).*(?:calculate|work out)|explain (?:the )?(?:cash )?forecast|where (?:does|did) (?:that|this|the) (?:forecast|number) come from)/.test(q) && /forecast|project/.test(q)) {
+    return {answer:"The forecast starts with the simulated receipts already saved. It adds expected on-time payments on signed balances and on deals the team still expects to sign. Proposal pace, close rate and the campaign’s decision signal affect the estimate.",refs,context:ctx(selected,"metric",{metric:"forecast"})};
+  }
+
+  const bothCases=/\bbase\b/.test(q)&&/\bstretch\b/.test(q);
+  const metric=requestedMetric(q) || (followup && context.topic==="metric"?context.metric:null) || (bothCases?"target":null);
+  const operation=metricOperation(q);
+  const metricList=[...new Set(q.split(/\band\b|,(?!\d)/).map(requestedMetric).filter(Boolean))];
+  if (!bothCases && metricList.length>1 && !["ratio","share","difference","sum","min","max"].includes(operation)) {
+    const answers=metricList.map(key=>calculateMetric(q,key,rows,board)).filter(Boolean);
+    return {answer:answers.map(result=>result.answer).join("\n\n"),refs,context:ctx(selected,"metric",{metric:metricList.at(-1)})};
+  }
+  const rankedGap=metric==="forecastGap" && operation==="max";
+  if (rankedGap) {
+    const max=Math.max(...rows.map(row=>row.gap));
+    const top=rows.filter(row=>row.gap===max);
+    if (!max) return {answer:"No campaign in this scope is forecast to fall short of its cash target.",refs,context:ctx(selected,"decision")};
+    if (top.length===1) return {...diagnose(top[0],true),refs,context:ctx(top[0],"decision")};
+  }
+  if (metric && !(metric==="signal" && /^why/.test(q))) {
+    if (bothCases && ["target","progress","forecastProgress","forecast","cashRequired","forecastGap"].includes(metric)) {
+      const perCampaign=/\bper campaign|by campaign|each campaign\b/.test(q);
+      const caseQuestion=perCampaign?"by campaign":"how much in total";
+      const cases=["base","stretch"].map(caseMode=>{
+        const caseBoard=overview(state,caseMode);
+        const caseRows=caseBoard.details.filter(row=>rows.some(selectedRow=>selectedRow.id===row.id));
+        return {value:metricValue(metrics[metric],caseRows).value,
+          line:`${caseMode[0].toUpperCase()+caseMode.slice(1)}: ${calculateMetric(caseQuestion,metric,caseRows,caseBoard).answer}`};
+      });
+      const format=metrics[metric].format;
+      const gap=operation==="difference"&&cases.every(result=>result.value!==null) ?
+        `Difference: ${format===precisePercent?precisePercent(Math.abs(cases[0].value-cases[1].value)).replace("%"," percentage points"):
+          format(Math.abs(cases[0].value-cases[1].value))}.\n\n` : "";
+      return {answer:gap+cases.map(result=>result.line).join("\n\n"),refs,context:ctx(selected,"metric",{metric})};
+    }
+    const result=calculateMetric(q,metric,rows,board);
+    if (result) return {answer:result.answer,refs,context:ctx(result.row,"metric",{metric})};
+  }
+  const actionable=/recommend|prioriti[sz]e|\bscale\b|\bstop\b|weakest|\bbest\b|underperform|what should|behind|shortfall|risk|bottleneck|how (?:can|could|do) we improve/.test(q);
+  if (actionable || (followup && context.topic==="decision")) {
+    const needsAction=/weakest|underperform|gap|behind|shortfall|risk|bottleneck/.test(q);
+    const action=q.match(/\b(stop|pause|scale|change|revise)\b/)?.[1];
+    const desired={stop:"Stop",pause:"Stop",scale:"Scale",change:"Change",revise:"Change"}[action];
+    if (selected && /^how (?:can|could|do) we improve/.test(q)) {
+      return {answer:`${selected.next} Track ${selected.metric.toLowerCase()} (currently ${pct(selected.actual.signal)}). Reassess after at least ${selected.min} observations and consider scaling at ${selected.scale}% or above.`,refs,context:ctx(selected,"decision")};
+    }
+    if (selected && /^why\b/.test(q)) {
+      const decisionNote=selected.decision==="Collect data" ? `The sample is below the ${selected.min}-observation minimum.` :
+        `That puts it in ${selected.decision}. It takes ${selected.scale}% to scale, and below ${selected.change}% triggers stop.`;
+      return {answer:`${selected.name} recorded ${pct(selected.actual.signal)} for ${selected.metric.toLowerCase()} across ${selected.actual.sample} observations. ${decisionNote} The forecast uses that decision to adjust the pace of new deals.`,refs,context:ctx(selected,"decision")};
+    }
+    if (selected) return {...diagnose(selected,needsAction),refs,context:ctx(selected,"decision")};
+    const byPriority=[...board.details].sort((a,b)=>b.plan.priority-a.plan.priority);
+    const top=needsAction?weakest:byPriority.find(row=>!desired||row.decision===desired);
+    if (!top) return {answer:`No campaign currently meets the ${desired.toLowerCase()} threshold. Check the campaign signals and observation counts.`,refs,context:ctx()};
+    return {...diagnose(top,needsAction),refs,context:ctx(top,"decision")};
+  }
+  if (requested.length>1 || /\bcompare|versus|vs\b/.test(q)) {
+    return {answer:rows.map(row=>`${row.name}: ${lakhs(row.actual.cash)} collected, ${lakhs(row.projection)} projected vs ${lakhs(row.plan.cash)} target, ${pct(rate(row.actual.signed,row.actual.proposals))} proposal-to-sign, ${row.decision.toLowerCase()}.`).join("\n"),refs,context:ctx(selected)};
+  }
+  const classifierInput=/\b(?:budget|spend|proposals?|funnel|prospects?|signed|cash|forecast|sponsor|campaign)\b/.test(q);
+  const cls=classifierInput?classify(q):null;
+  if (/\bfunnel|pipeline|convers(?:ations|ion)|sign(?:ed|ings)|propos(?:als?|ed)\b/.test(q) || cls==="funnel") {
+    const a=selected?.actual || board.totals;
+    const counts=[a.prospects,a.conversations,a.proposals,a.signed,a.paid];
+    const transitions=counts.slice(1).map((n,i)=>({name:`${stageLabels[i]} to ${stageLabels[i+1]}`,rate:rate(n,counts[i])})).filter(row=>row.rate!==null);
+    const low=transitions.sort((a,b)=>a.rate-b.rate)[0];
     return {answer:`${selected?.name || "Workspace"}: ${counts.map((n,i)=>`${n} ${stageLabels[i].toLowerCase()}`).join(" / ")}. ${low?`Smallest conversion is ${low.name.toLowerCase()} at ${pct(low.rate)}.`:"There is insufficient volume to calculate stage conversions."} Signed value is ${lakhs(a.signedValue)} and cash received is ${lakhs(a.cash)}.`,refs,context:ctx(selected)};
   }
-  if (cls === "collection" || has(q,/forecast|cash|target|paid|collected|raised|funded|gap|progress|on track/) || (scopedFollowup && context.topic==="cash")) {
-    const cash = selected?.actual.cash ?? board.totals.cash;
-    const signed = selected?.actual.signedValue ?? board.totals.signedValue;
-    const prediction = selected?.projection ?? board.projection;
-    const target = selected?.plan.cash ?? board.target;
-    const subject=selected?.name || "The workspace";
-    if(has(q,/how many.*(paid|received payment)|\b(count|number of) (paid|settled) deals\b/)) {
-      const n=selected?.actual.paid ?? board.totals.paid;
-      return {answer:`${subject} has ${n} paid ${n===1?"deal":"deals"} in the simulation, with ${lakhs(cash)} received so far.`,refs,context:ctx(selected,"cash")};
-    }
-    if(has(q,/how much.*(collected|raised|received|paid)|cash (collected|received)|receipts|money in/)&&!has(q,/target|forecast|projection/)) {
-      const n=selected?.actual.paid ?? board.totals.paid;
-      return {answer:`${subject} has ${lakhs(cash)} in simulated receipts across ${n} paid ${n===1?"deal":"deals"}. Signed cash agreements total ${lakhs(signed)}.`,refs,context:ctx(selected,"cash")};
-    }
-    const delta=prediction-target;
-    const comparison=delta===0 ? "That meets the target." : `That leaves the forecast ${lakhs(Math.abs(delta))} ${delta>0?"above":"below"} the target.`;
-    return {answer:`${subject} is forecast to collect ${lakhs(prediction)} by 11 April. The ${mode} target is ${lakhs(target)}. ${comparison}\n\n${lakhs(cash)} is already logged as simulated cash received.`,refs,context:ctx(selected,"cash")};
+  if (/\bbudget|spend|spent\b/.test(q) || cls==="budget") {
+    const budget=sum(rows,"budget"), spend=sum(rows,row=>row.actual.spend);
+    return {answer:`${selected?.name || "Workspace"} has spent ${inr(spend)} of ${inr(budget)} (${pct(rate(spend,budget))}). Remaining budget is ${inr(budget-spend)}.`,refs,context:ctx(selected,"metric",{metric:"spend"})};
+  }
+  if (/\bon track\b|forecast|shortfall|target|projected|gap/.test(q) || cls==="collection") {
+    const prediction=sum(rows,"projection"), target=sum(rows,cashTarget), delta=prediction-target;
+    const comparison=delta===0?"That meets the target.":`That leaves the forecast ${lakhs(Math.abs(delta))} ${delta>0?"above":"below"} the target.`;
+    return {answer:`${selected?.name || "The workspace"} is forecast to collect ${lakhs(prediction)} by 11 April. The ${mode} target is ${lakhs(target)}. ${comparison}\n\n${lakhs(sum(rows,collectCash))} is already logged as simulated cash received.`,refs,context:ctx(selected,"metric",{metric:"forecast"})};
   }
   return {answer:scopeText,refs:[]};
+}
+
+function diagnose(row,gap) {
+  const a=row.actual;
+  const verdict=a.sample<row.min?`I’d wait for at least ${row.min} observations before deciding.`:`I’d ${row.decision.toLowerCase()} this campaign.`;
+  const leading=gap&&row.gap?`${row.name} is ${lakhs(row.gap)} short of its cash target (${inr(row.gap)}).`:
+    `${row.name} is forecast to collect ${lakhs(row.projection)} against a target of ${lakhs(row.plan.cash)}.`;
+  return {answer:`${leading} ${verdict}\n\n${row.metric} stands at ${pct(a.signal)} across ${a.sample} observations. The rule is to scale at ${row.scale}% or above, change from ${row.change}% to below ${row.scale}%, and stop below ${row.change}%.\n\n${row.next}`};
 }
 
 class RequestError extends Error {}
@@ -424,30 +958,48 @@ class RequestError extends Error {}
 const validateNumber = (value,max,min=0) => Number.isInteger(value) && value>=min && value<=max;
 const counters = ["prospects","conversations","proposals","signed","paid"];
 const amounts = ["signedValue","cash","spend"];
-function campaignChange(state,input) {
-  const id=input.id, values=input.values;
-  if (typeof id!=="string" || !Object.hasOwn(state.campaigns,id) || !values || typeof values!=="object") throw new RequestError("Choose a valid campaign.");
+const campaignFields = [...counters,...amounts,"sample","signal"];
+
+function campaignValues(values,{allowLegacySigned=false}={}) {
+  if (!values || typeof values!=="object" || Array.isArray(values)) throw new RequestError("Enter the campaign figures.");
   if (![...counters,"sample"].every(key=>validateNumber(values[key],100000)) ||
       !amounts.every(key=>validateNumber(values[key],1000000000)) ||
-      typeof values.signal!=="number" || !Number.isFinite(values.signal) || values.signal<0||values.signal>100)
-    throw new RequestError("Use whole non-negative counts and rupees. The signal must be 0% to 100%.");
-  if (counters.some((key,index)=>index>0&&values[counters[index-1]]<values[key])) throw new RequestError("Each funnel stage must be no higher than the previous stage.");
-  if (values.cash>values.signedValue || (values.cash>0&&!values.paid) || (values.paid>0&&!values.cash) || (values.signedValue>0&&!values.signed)) {
-    throw new RequestError("Align paid deals and receipts with signed value and signed deals.");
+      !Number.isFinite(values.signal) || values.signal<0 || values.signal>100) {
+    throw new RequestError("Enter whole counts from 0 to 100,000, whole rupees from 0 to 1,000,000,000, and a signal from 0% to 100%.");
   }
-  state.campaigns[id] = Object.fromEntries([...counters,...amounts,"sample","signal"].map(key=>[key,values[key]]));
+  if (counters.some((key,index)=>index>0&&values[counters[index-1]]<values[key])) throw new RequestError("Each funnel stage must be no higher than the previous stage.");
+  if (values.cash>values.signedValue) throw new RequestError("Cash received cannot exceed signed cash value.");
+  if (Boolean(values.paid)!==Boolean(values.cash)) throw new RequestError("Enter both paid deals and cash received, or set both to zero.");
+  if ((!values.signed && values.signedValue) || (values.signed && !values.signedValue && !allowLegacySigned)) {
+    throw new RequestError("Enter both signed deals and signed cash value, or set both to zero.");
+  }
+  return Object.fromEntries(campaignFields.map(key=>[key,values[key]]));
+}
+function campaignChange(state,input) {
+  if (typeof input.id!=="string" || !Object.hasOwn(state.campaigns,input.id)) throw new RequestError("Choose a valid campaign.");
+  state.campaigns[input.id]=campaignValues(input.values);
 }
 const statuses=["To do","In progress","Done"];
-function taskChange(state,input) {
-  const task=input.task;
+function taskValues(state,task) {
   if (!task || !Object.hasOwn(state.campaigns,task.campaign) || typeof task.title!=="string" || !task.title.trim() || task.title.length>110 ||
       typeof task.owner!=="string" || !task.owner.trim() || task.owner.length>50 || typeof task.note!=="string" || task.note.length>450 ||
-      typeof task.due!=="string" || !/^20\d\d-\d\d-\d\d$/.test(task.due) || !Number.isFinite(Date.parse(task.due)) ||
-      new Date(task.due).toISOString().slice(0,10)!==task.due || !statuses.includes(task.status)) throw new RequestError("Provide a title, owner, valid due date, campaign, and status.");
-  const edited={title:task.title.trim(),campaign:task.campaign,owner:task.owner.trim(),due:task.due,status:task.status,note:task.note.trim()};
+      !validIsoDate(task.due) || !statuses.includes(task.status)) throw new RequestError("Provide a title, owner, valid due date, campaign, and status.");
+  return {title:task.title.trim(),campaign:task.campaign,owner:task.owner.trim(),due:task.due,status:task.status,note:task.note.trim()};
+}
+const taskKey = id=>typeof id==="string" && /^(?:t-[1-3]|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i.test(id);
+function taskChange(state,input) {
+  const task=input.task;
+  const edited=taskValues(state,task);
   if (input.kind==="create-task") {
+    const id=task.id??crypto.randomUUID();
+    if (!taskKey(id)) throw new RequestError("The task identifier is invalid. Reopen the task form.");
+    const existing=state.tasks.find(row=>row.id===id);
+    if (existing) {
+      if (Object.entries(edited).every(([key,value])=>existing[key]===value)) return;
+      throw new RequestError("This draft was already saved. Open it in Tasks to make changes.");
+    }
     if(state.tasks.length>=100) throw new RequestError("The demo workspace supports up to 100 tasks.");
-    state.tasks.push({...edited,id:crypto.randomUUID()});
+    state.tasks.push({...edited,id});
   } else {
     const index=state.tasks.findIndex(t=>t.id===task.id);
     if(index<0) throw new RequestError("Task was not found.");
@@ -456,8 +1008,8 @@ function taskChange(state,input) {
 }
 
 function applyChange(state,input) {
-  if (input.kind==="update-campaign") campaignChange(state,input);
-  else if (["create-task","edit-task"].includes(input.kind)) taskChange(state,input);
+  if (input?.kind==="update-campaign") campaignChange(state,input);
+  else if (["create-task","edit-task"].includes(input?.kind)) taskChange(state,input);
   else throw new RequestError("Unknown workspace action.");
   return state;
 }
@@ -466,7 +1018,7 @@ function historicalQuery(query) {
     const date=query.get("date")||historyDate;
     const campaign=query.get("campaign")||undefined;
     const brand=query.get("brand")||undefined;
-    if(!/^2025-\d\d-\d\d$/.test(date)||date<"2025-01-15"||date>"2025-04-20"||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)
+    if(!validIsoDate(date)||date<"2025-01-15"||date>"2025-04-20")
       throw new RequestError("Choose a history date from January 15 to April 20, 2025.");
     if (campaign&&!DATA.sponsor["Sponsor campaigns"].some(c=>c.sponsor_campaign_id===campaign)) throw new RequestError("Unknown historical campaign.");
     if (brand&&!DATA.sponsor.Brands.some(b=>b.brand_id===brand)) throw new RequestError("Unknown historical brand.");
@@ -476,6 +1028,31 @@ function historicalQuery(query) {
       link:DATA.links.sponsorship,attendanceLink:DATA.links.attendee,activities:s.activations.map(a=>({...a,visitors:attendance(a.id,date)}))};
 }
 
+function workspaceRecord(saved) {
+  if (saved===undefined) return {state:initial(),revision:0};
+  const {state,revision}=saved??{};
+  try {
+    if (!Number.isSafeInteger(revision) || revision<0 || revision>=Number.MAX_SAFE_INTEGER ||
+        !state?.campaigns || !Array.isArray(state.tasks) || state.tasks.length>100 ||
+        Object.keys(state.campaigns).length!==PLAN.campaigns.length) throw new Error();
+    for (const {id} of PLAN.campaigns) {
+      const actual=state.campaigns[id];
+      // Earlier builds allowed a positive signed count without a signed value.
+      // Preserve those existing records. A subsequent edit must set the value.
+      campaignValues(actual,{allowLegacySigned:true});
+    }
+    const ids=new Set();
+    for (const task of state.tasks) {
+      if (!taskKey(task?.id) || ids.has(task.id)) throw new Error();
+      ids.add(task.id);
+      taskValues(state,task);
+    }
+    return saved;
+  } catch {
+    throw new RequestError("Saved workspace records could not be read. The stored data is still available in this browser. Open the app in a fresh browser profile to use the demo.");
+  }
+}
+
 const database = new Promise((resolve,reject)=>{
   const request=indexedDB.open("risa-sponsor-desk",1);
   request.onupgradeneeded=()=>request.result.createObjectStore("workspace");
@@ -483,13 +1060,14 @@ const database = new Promise((resolve,reject)=>{
   request.onerror=()=>reject(new RequestError("Browser storage is unavailable. Allow site data and reload."));
   request.onblocked=()=>reject(new RequestError("Close other Sponsor Desk tabs and reload."));
 });
-const seeded=()=>({state:initial(),revision:0});
-
 async function loadWorkspace(){
   const db=await database;
   return new Promise((resolve,reject)=>{
     const request=db.transaction("workspace").objectStore("workspace").get("draft");
-    request.onsuccess=()=>resolve(request.result||seeded());
+    request.onsuccess=()=>{
+      try { resolve(workspaceRecord(request.result)); }
+      catch (error) { reject(error); }
+    };
     request.onerror=()=>reject(new RequestError("The workspace could not be loaded."));
   });
 }
@@ -503,13 +1081,15 @@ async function saveWorkspace(input){
     let result;
     let error;
     read.onsuccess=()=>{
-      const current=read.result||seeded();
-      if(current.revision!==input.revision){
-        error=new RequestError("This workspace changed in another tab. Refresh and retry.");
-        transaction.abort();
-        return;
-      }
       try{
+        const current=workspaceRecord(read.result);
+        const existing=input?.kind==="create-task" && current.state.tasks.find(task=>task.id===input.task?.id);
+        if (existing) {
+          applyChange(current.state,input);
+          result=current;
+          return;
+        }
+        if(current.revision!==input?.revision) throw new RequestError("This workspace changed in another tab. Reopen the editor and try again.");
         result={state:applyChange(current.state,input),revision:current.revision+1};
         store.put(result,"draft");
       }catch(cause){error=cause;transaction.abort();}
@@ -525,7 +1105,7 @@ async function handle(method,path,input) {
   if(url.pathname==="/api/workspace") return method==="GET"?loadWorkspace():saveWorkspace(input);
   if(url.pathname==="/api/history"&&method==="GET")return historicalQuery(url.searchParams);
   if(url.pathname==="/api/ask"&&method==="POST"){
-    if(typeof input.q!=="string"||!input.q.trim()||input.q.length>600) throw new RequestError("Enter a question of up to 600 characters.");
+    if(typeof input?.q!=="string"||!input.q.trim()||input.q.length>600) throw new RequestError("Enter a question of up to 600 characters.");
     return answerQuestion(input,(await loadWorkspace()).state);
   }
   throw new RequestError("That request was not recognized.");

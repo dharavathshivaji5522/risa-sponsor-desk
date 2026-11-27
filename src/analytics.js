@@ -85,16 +85,20 @@ function decision(config, actual) {
   return "Stop";
 }
 
-function forecast(config, actual, mode) {
+function forecastCloseRate(actual, target) {
+  return (actual.signed + 6*(target.signed / target.proposals)) / (actual.proposals+6);
+}
+
+function forecast(config, actual, mode, assumptions = {}) {
   const target = planRow(config,mode);
   const balance = actual.signedValue - actual.cash;
-  const closeRate = (actual.signed + 6*(target.signed / target.proposals)) / (actual.proposals+6);
+  const closeRate = assumptions.closeRate ?? forecastCloseRate(actual,target);
   const remainingDays = Math.round((Date.parse(PLAN.deadline)-Date.parse(PLAN.today))/86_400_000);
   const elapsed = Math.max(1,42-remainingDays);
   const newProposals = Math.min(Math.max(0,target.proposals-actual.proposals),Math.floor(actual.proposals/elapsed*remainingDays));
   const pace = {"Scale":1,"Change":0.6,"Stop":0,"Collect data":0.4}[decision(config,actual)];
   const additionalSigned = Math.min(Math.max(0,target.signed-actual.signed),(Math.max(0,actual.proposals-actual.signed)+newProposals)*closeRate*pace);
-  return Math.round(actual.cash + (balance + additionalSigned*target.deal)*target.collect);
+  return Math.round(actual.cash + (balance + additionalSigned*(assumptions.deal ?? target.deal))*(assumptions.collect ?? target.collect));
 }
 
 function overview(state, mode = "base") {

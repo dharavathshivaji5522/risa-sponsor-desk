@@ -2,6 +2,14 @@
   "name": "risa-sponsor-desk",
   "private": true,
   "type": "module",
-  "scripts": { "build": "node scripts/build.mjs", "start": "node scripts/dev.mjs", "test": "node --test tests/*.test.mjs" },
-  "engines": { "node": ">=22.13" }
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/dev.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node --test tests/browser.mjs",
+    "test:report": "node tests/report.mjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
 }

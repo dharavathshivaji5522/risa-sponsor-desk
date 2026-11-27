@@ -10,10 +10,12 @@ history.links.attendee=blog+"/blob/main/data/attendee-original.xlsx";
 const plan=JSON.stringify(JSON.parse(await readFile("data/plan.json","utf8")));
 const analytics=await readFile("src/analytics.js","utf8");
 const worker=await readFile("src/worker.js","utf8");
+const metrics=await readFile("src/copilot-metrics.js","utf8");
+const scenarios=await readFile("src/copilot-scenarios.js","utf8");
 const copilot=await readFile("src/copilot.js","utf8");
 await Promise.all([
   writeFile(at("engine.js"),`const PLAN=${plan};\n${analytics}`),
-  writeFile(at("workspace-worker.js"),`const DATA=${JSON.stringify(history)};\nconst PLAN=${plan};\n${analytics}\n${copilot}\n${worker}`),
+  writeFile(at("workspace-worker.js"),`const DATA=${JSON.stringify(history)};\nconst PLAN=${plan};\n${analytics}\n${metrics}\n${scenarios}\n${copilot}\n${worker}`),
   copyFile("data/sponsorship-original.xlsx",at("sponsorship-original.xlsx")),
   copyFile("data/attendee-original.xlsx",at("attendee-original.xlsx")),
   writeFile(at(".nojekyll"),"")

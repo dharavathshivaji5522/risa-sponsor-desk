@@ -40,6 +40,7 @@ let historyOptions={date:historyDate,campaign:"",brand:""};
 let historyPayload=null, historyRequest=0;
 let filterTasks="All", askContext={}, pendingAsk=false, toastTimer;
 let drafts=new Map();
+const workspaceEvents = typeof BroadcastChannel==="undefined" ? null : new BroadcastChannel("risa-sponsor-desk-workspace");
 const views=new Set(["dashboard","campaigns","tasks","history"]);
 try {
   const url = new URL(window.location.href);
@@ -169,7 +170,7 @@ function render(){
   $("#main-view").innerHTML=view==="dashboard"?dashboard(b):view==="campaigns"?campaigns(b):view==="tasks"?tasks():historyView();
 }
 async function load(){
-  try{const data=await api("/api/workspace");state=data.state;revision=data.revision;showError("");render();if(view==="history"&&!historyPayload)fetchHistory();}
+  try{const data=await api("/api/workspace");if(state&&data.revision<revision)return;state=data.state;revision=data.revision;showError("");render();if(view==="history"&&!historyPayload)fetchHistory();}
   catch(error){showError(error.message);$("#main-view").innerHTML='<p class="loading">The workspace could not be loaded.</p>';}
 }
 function navigate(to){
@@ -186,23 +187,27 @@ const controls = [
   ["spend","Acquisition spend (INR)"],["signal","Leading signal (%)"],["sample","Signal observations"]
 ];
 function modalSetup(markup,handler){
+  const openedRevision=revision;
+  let saving=false;
   $("#dialog-content").innerHTML=markup;
   $("#editor").showModal();
   $("#edit-form").addEventListener("submit",async ev=>{
     ev.preventDefault();
+    if(saving)return;
     const form=ev.currentTarget;
     const button=form.querySelector("button[type=submit]");
     const errors=$("#edit-error");
-    button.disabled=true;errors.hidden=true;
-    try{await handler(new FormData(form));$("#editor").close();}
+    saving=true;button.disabled=true;errors.hidden=true;
+    try{await handler(new FormData(form),openedRevision);$("#editor").close();}
     catch(error){errors.textContent=error.message;errors.hidden=false;}
-    finally{button.disabled=false;}
+    finally{saving=false;button.disabled=false;}
   });
 }
-async function save(data){
+async function save(data,openedRevision){
   try {
-    const result=await api("/api/workspace",{...data,revision});
+    const result=await api("/api/workspace",{...data,revision:openedRevision});
     state=result.state;revision=result.revision;render();
+    workspaceEvents?.postMessage(revision);
   }catch(error){
     if(error.message.includes("another tab"))await load();
     throw error;
@@ -215,13 +220,16 @@ function editCampaign(id){
   const values=state.campaigns[id];
   modalSetup(`<h2 id="edit-title">${e(row.name)}</h2><p>Update the simulation. Separate signed agreements from cash received.</p><form id="edit-form"><div class="fields">
   ${controls.map(([key,label])=>`<label>${label}<input type="number" name="${key}" value="${values[key]}" min="0" step="${key==="signal"?"0.1":"1"}" ${key==="signal"?'max="100"':""} required></label>`).join("")}
-  </div>${editFooter("Save campaign figures")}`,async data=>{
-    await save({kind:"update-campaign",id,values:Object.fromEntries(controls.map(([key])=>[key,Number(data.get(key))]))});
+  </div>${editFooter("Save campaign figures")}`,async (data,openedRevision)=>{
+    await save({kind:"update-campaign",id,values:Object.fromEntries(controls.map(([key])=>[key,Number(data.get(key))]))},openedRevision);
     toast("Campaign saved. Dashboard and Copilot now use these figures.");
   });
 }
-function editTask(id,draft){
+function editTask(id,draftKey){
   if(!state)return;
+  const draft=drafts.get(draftKey);
+  if(draftKey&&!draft)return;
+  const taskId=id||draftKey||crypto.randomUUID();
   const t=id?state.tasks.find(task=>task.id===id):draft||{campaign:PLAN.campaigns[0].id,title:"",owner:"",due:"2025-03-29",status:"To do",note:""};
   if(!t)return;
   modalSetup(`<h2 id="edit-title">${id?"Edit task":draft?"Review Copilot draft":"New task"}</h2><p>${draft?"Confirm the details to add this action to the task list.":"Assign a measurable follow-up to a campaign owner."}</p>
@@ -232,8 +240,14 @@ function editTask(id,draft){
   <label>Due date<input type="date" name="due" value="${e(t.due)}" required></label>
   <label>Status<select name="status">${opts(["To do","In progress","Done"].map(k=>[k,k]),t.status)}</select></label>
   <label class="wide">Notes<textarea name="note" maxlength="450">${e(t.note)}</textarea></label>
-  </div>${editFooter(draft?"Confirm and save task":"Save task")}`,async data=>{
-    await save({kind:id?"edit-task":"create-task",task:{...Object.fromEntries(data),id}});
+  </div>${editFooter(draft?"Confirm and save task":"Save task")}`,async (data,openedRevision)=>{
+    await save({kind:id?"edit-task":"create-task",task:{...Object.fromEntries(data),id:taskId}},openedRevision);
+    if(draftKey){
+      drafts.delete(draftKey);
+      const draftButton=document.querySelector(`[data-draft="${draftKey}"]`);
+      if(draftButton){draftButton.disabled=true;draftButton.textContent="Task saved";}
+      if(askContext.topic==="draft")askContext={...askContext,topic:"tasks"};
+    }
     navigate("tasks");toast("Task saved.");
   });
 }
@@ -291,7 +305,7 @@ async function ask(question){
   bubble(question,"question");
   const loading=typingBubble();
   try {
-    const payload={q:question,mode,context:askContext,...(view==="history"&&{scope:"history",date:historyOptions.date})};
+    const payload={q:question,mode,context:askContext,...(view==="history"&&{scope:"history",...historyOptions})};
     const delay=matchMedia("(prefers-reduced-motion: reduce)").matches?0:220;
     const [response]=await Promise.all([api("/api/ask",payload),new Promise(resolve=>setTimeout(resolve,delay))]);
     if(response.context)askContext=response.context;
@@ -309,7 +323,7 @@ document.addEventListener("click",ev=>{
   if(button.dataset.campaign)editCampaign(button.dataset.campaign);
   if(button.dataset.taskFilter){filterTasks=button.dataset.taskFilter;render();}
   if(button.dataset.preset){$("#ask-text").value="";ask(button.dataset.preset);}
-  if(button.dataset.draft)editTask(null,drafts.get(button.dataset.draft));
+  if(button.dataset.draft)editTask(null,button.dataset.draft);
 });
 document.addEventListener("submit",ev=>{
   if(ev.target.id!=="history-form")return;
@@ -324,4 +338,6 @@ $("#reset-chat").addEventListener("click",()=>{
 $("#ask-form").addEventListener("submit",ev=>{
   ev.preventDefault();if(pendingAsk)return;const entry=$("#ask-text");const question=entry.value.trim();if(question){entry.value="";ask(question);}
 });
+workspaceEvents?.addEventListener("message",({data})=>{if(Number.isSafeInteger(data)&&data>revision)load();});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&state)load();});
 load();
